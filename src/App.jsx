@@ -1,23 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
-  Upload, 
-  FileAudio, 
-  FileImage, 
-  FileQuestion, 
-  ArrowRight, 
+  ArrowUpRight,
   Download, 
   Share2, 
   Trash2, 
-  Sparkles, 
-  ShieldCheck, 
-  Smartphone, 
-  ClipboardCopy, 
-  CheckCircle, 
-  AlertCircle, 
-  RefreshCw,
-  HelpCircle,
-  Play,
-  Pause
+  SlidersHorizontal,
+  Play, 
+  Pause,
+  Check,
+  AlertCircle,
+  Loader2,
+  Edit2,
+  Plus,
+  FileMusic,
+  FileImage,
+  ChevronDown
 } from 'lucide-react';
 import { 
   SUPPORTED_AUDIO_FORMATS, 
@@ -31,18 +28,13 @@ import {
 export default function App() {
   const [items, setItems] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [iosTipOpen, setIosTipOpen] = useState(false);
-  const [clipboardStatus, setClipboardStatus] = useState('');
   const fileInputRef = useRef(null);
 
-  // Auto detect if user is on iOS
-  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-  // Handle file addition
   const addFiles = (fileList) => {
     const newItems = Array.from(fileList).map(file => {
       const category = getFileTypeCategory(file);
       const originalExt = file.name.split('.').pop().toLowerCase();
+      const rawBaseName = file.name.replace(/\.[^/.]+$/, '');
       
       let defaultTarget = 'mp3';
       if (category === 'audio') {
@@ -55,6 +47,9 @@ export default function App() {
         id: Math.random().toString(36).substring(2, 9),
         file,
         name: file.name,
+        rawBaseName,
+        customName: rawBaseName,
+        isEditingName: false,
         size: file.size,
         category,
         originalExt,
@@ -62,7 +57,7 @@ export default function App() {
         status: 'idle', // idle, converting, success, error
         progress: 0,
         resultUrl: null,
-        resultFile: null,
+        resultBlob: null,
         resultSize: 0,
         error: null,
         isPlaying: false,
@@ -80,45 +75,6 @@ export default function App() {
     }
   };
 
-  // Clipboard paste support (Mobile & PC)
-  const handlePasteClipboard = async () => {
-    try {
-      setClipboardStatus('正在读取剪贴板...');
-      if (!navigator.clipboard || !navigator.clipboard.read) {
-        // Fallback for text or older browsers
-        alert('您的浏览器不支持直接读取文件剪贴板，请使用选择文件或拖拽上传。');
-        setClipboardStatus('');
-        return;
-      }
-
-      const clipboardItems = await navigator.clipboard.read();
-      const files = [];
-
-      for (const item of clipboardItems) {
-        for (const type of item.types) {
-          if (type.startsWith('image/') || type.startsWith('audio/')) {
-            const blob = await item.getType(type);
-            const ext = type.split('/')[1] || 'bin';
-            const file = new File([blob], `clipboard_${Date.now()}.${ext}`, { type });
-            files.push(file);
-          }
-        }
-      }
-
-      if (files.length > 0) {
-        addFiles(files);
-        setClipboardStatus(`已粘贴 ${files.length} 个文件`);
-      } else {
-        setClipboardStatus('剪贴板中未发现图片或音频数据');
-      }
-    } catch (err) {
-      console.warn('Clipboard read failed:', err);
-      setClipboardStatus('未能读取剪贴板，请允许访问或改用【选取文件】');
-    }
-    setTimeout(() => setClipboardStatus(''), 3000);
-  };
-
-  // Convert single item
   const handleConvert = async (item) => {
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'converting', progress: 5, error: null } : i));
 
@@ -131,7 +87,7 @@ export default function App() {
           setItems(prev => prev.map(i => i.id === item.id ? { ...i, progress: prog } : i));
         });
       } else {
-        throw new Error('未知的格式类型，仅支持常见音视频与图片');
+        throw new Error('不支持的文件格式');
       }
 
       setItems(prev => prev.map(i => i.id === item.id ? {
@@ -139,59 +95,65 @@ export default function App() {
         status: 'success',
         progress: 100,
         resultUrl: result.url,
-        resultFile: result.file,
+        resultBlob: result.blob,
         resultSize: result.size
       } : i));
     } catch (err) {
       setItems(prev => prev.map(i => i.id === item.id ? {
         ...i,
         status: 'error',
-        error: err.message || '转换失败'
+        error: err.message || '转换异常'
       } : i));
     }
   };
 
-  // Convert all idle items
   const handleConvertAll = () => {
     items.filter(i => i.status === 'idle' || i.status === 'error').forEach(item => {
       handleConvert(item);
     });
   };
 
-  // Trigger Native Share API (iOS / Android / Mac)
-  const handleShare = async (item) => {
-    if (!item.resultFile) return;
-
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [item.resultFile] })) {
-      try {
-        await navigator.share({
-          files: [item.resultFile],
-          title: item.resultFile.name,
-          text: '通过极速格式转换器生成',
-        });
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error('Share error:', err);
-        }
-      }
-    } else {
-      // Fallback: trigger download
-      handleDownload(item);
-    }
+  // Get full output filename with target extension
+  const getOutputFilename = (item) => {
+    const finalExt = item.targetFormat === 'jpeg' ? 'jpg' : item.targetFormat;
+    const base = (item.customName || item.rawBaseName).trim() || 'output';
+    return `${base}.${finalExt}`;
   };
 
-  // Direct download
+  // Download with custom filename
   const handleDownload = (item) => {
     if (!item.resultUrl) return;
+    const filename = getOutputFilename(item);
     const a = document.createElement('a');
     a.href = item.resultUrl;
-    a.download = item.resultFile ? item.resultFile.name : `converted_${item.name}`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
 
-  // Audio preview playback toggle
+  // Web Share API
+  const handleShare = async (item) => {
+    if (!item.resultBlob) return;
+    const filename = getOutputFilename(item);
+    const file = new File([item.resultBlob], filename, { type: item.resultBlob.type });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error(err);
+        }
+      }
+    } else {
+      handleDownload(item);
+    }
+  };
+
   const togglePlayAudio = (item) => {
     const audioEl = document.getElementById(`audio-player-${item.id}`);
     if (!audioEl) return;
@@ -223,383 +185,317 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950/40 text-slate-100 flex flex-col items-center px-4 py-6 sm:py-10">
+    <div className="min-h-screen bg-[#0b0f17] text-zinc-100 font-sans antialiased flex flex-col selection:bg-zinc-800 selection:text-white">
       
-      {/* App Header */}
-      <header className="w-full max-w-3xl flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+      {/* Top Navbar */}
+      <header className="h-16 border-b border-zinc-800/80 px-6 sm:px-10 flex items-center justify-between backdrop-blur-md bg-[#0b0f17]/90 sticky top-0 z-40">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 ring-1 ring-indigo-400/30">
-            <Sparkles className="w-6 h-6 text-white" />
+          <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-black font-black text-sm tracking-tight">
+            CV
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-              极速格式转换器
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                0服务器·离线
-              </span>
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400">音视频与图片本地安全互转 · 无文件大小限制</p>
-          </div>
+          <span className="font-semibold text-sm tracking-tight text-white">Convert Studio</span>
         </div>
 
-        <button 
-          onClick={() => setIosTipOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700/60 transition-colors shadow-sm"
-        >
-          <Smartphone className="w-4 h-4 text-indigo-400" />
-          <span className="hidden sm:inline">iOS / 手机使用技巧</span>
-          <span className="sm:hidden">手机技巧</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded-lg hover:bg-zinc-900 transition"
+            >
+              清空
+            </button>
+          )}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs font-medium bg-zinc-100 hover:bg-white text-black px-3.5 py-1.5 rounded-lg transition active:scale-95 flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>添加文件</span>
+          </button>
+        </div>
       </header>
 
+      {/* Hidden File Input */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        multiple 
+        accept="image/*,audio/*,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp"
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+
       {/* Main Container */}
-      <main className="w-full max-w-3xl space-y-6">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">
 
-        {/* Upload Dropzone */}
-        <div 
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`relative border-2 border-dashed rounded-3xl p-6 sm:p-10 text-center cursor-pointer transition-all duration-300 bg-slate-900/60 backdrop-blur-xl ${
-            isDragging 
-              ? 'border-indigo-400 bg-indigo-950/30 scale-[1.01]' 
-              : 'border-slate-700/80 hover:border-indigo-500/60 hover:bg-slate-850/60'
-          }`}
-        >
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            multiple 
-            accept="image/*,audio/*,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp"
-            className="hidden" 
-            onChange={(e) => {
-              if (e.target.files) addFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-
-          <div className="flex flex-col items-center justify-center gap-3">
-            <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-              <Upload className="w-8 h-8 transition-transform group-hover:-translate-y-0.5" />
+        {/* Hero Drop Area (Compact & Professional) */}
+        {items.length === 0 ? (
+          <div
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex-1 border border-dashed rounded-2xl flex flex-col items-center justify-center p-12 text-center cursor-pointer transition-all duration-200 ${
+              isDragging 
+                ? 'border-zinc-400 bg-zinc-900/50' 
+                : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/20 hover:bg-zinc-900/40'
+            }`}
+          >
+            <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-300 mb-4 shadow-sm">
+              <ArrowUpRight className="w-5 h-5" />
             </div>
-            <div>
-              <p className="text-base sm:text-lg font-semibold text-white">
-                点击选择文件，或将音频/图片拖至此处
-              </p>
-              <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                支持 MP3、WAV、M4A、AAC、FLAC、OGG 及 JPG、PNG、WebP、BMP、ICO
-              </p>
+            <h3 className="text-sm font-medium text-zinc-200 mb-1">
+              拖拽音频或图片至此处，或点击浏览文件
+            </h3>
+            <p className="text-xs text-zinc-500">
+              支持批量转换 · 自由重命名 · 纯本地高保真处理
+            </p>
+          </div>
+        ) : (
+          /* When files exist */
+          <div className="flex flex-col gap-4">
+            
+            {/* Header Control Row */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  转换队列 ({items.length})
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-xs text-zinc-300 hover:text-white px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition"
+                >
+                  继续添加
+                </button>
+                <button
+                  onClick={handleConvertAll}
+                  className="text-xs font-medium bg-zinc-100 hover:bg-white text-black px-4 py-1.5 rounded-lg transition active:scale-95 shadow-sm"
+                >
+                  全部转换
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Quick Actions Bar for Mobile (Paste Clipboard, iOS tips, test samples) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handlePasteClipboard}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/90 text-slate-200 border border-slate-700 transition active:scale-95 shadow-sm"
-              title="读取剪贴板中的图片或录音"
-            >
-              <ClipboardCopy className="w-4 h-4 text-emerald-400" />
-              <span>从剪贴板粘贴</span>
-            </button>
+            {/* List of File Cards */}
+            <div className="flex flex-col gap-3">
+              {items.map((item) => (
+                <div 
+                  key={item.id}
+                  className="group rounded-xl bg-zinc-900/40 border border-zinc-800/90 p-4 transition-all hover:border-zinc-700/90 flex flex-col gap-3"
+                >
+                  {/* Top section: Info, Rename, Format Selector */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    
+                    {/* Left: Icon + File Name & Rename */}
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 text-zinc-400">
+                        {item.category === 'audio' ? (
+                          <FileMusic className="w-4 h-4 text-zinc-300" />
+                        ) : (
+                          <FileImage className="w-4 h-4 text-zinc-300" />
+                        )}
+                      </div>
 
-            {/* Quick Demo samples for fast testing */}
-            <button
-              onClick={async () => {
-                const res = await fetch('/sample-test.bmp');
-                const blob = await res.blob();
-                const file = new File([blob], 'sample-test.bmp', { type: 'image/bmp' });
-                addFiles([file]);
-              }}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-300 border border-slate-700/50 transition active:scale-95"
-            >
-              🧪 测试图片 (BMP)
-            </button>
+                      <div className="min-w-0 flex-1">
+                        {/* Filename with inline edit */}
+                        <div className="flex items-center gap-2">
+                          {item.isEditingName ? (
+                            <div className="flex items-center gap-1.5 flex-1 max-w-sm">
+                              <input
+                                type="text"
+                                value={item.customName}
+                                autoFocus
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItems(prev => prev.map(i => i.id === item.id ? { ...i, customName: val } : i));
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEditingName: false } : i));
+                                  }
+                                }}
+                                className="bg-zinc-950 border border-zinc-700 rounded px-2 py-0.5 text-xs text-white focus:outline-none focus:border-zinc-400 w-full"
+                              />
+                              <button
+                                onClick={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEditingName: false } : i))}
+                                className="p-1 text-zinc-400 hover:text-white"
+                                title="确认"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 group/name">
+                              <span 
+                                className="text-xs font-medium text-zinc-200 truncate cursor-pointer hover:text-white"
+                                title="点击修改导出名称"
+                                onClick={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEditingName: true } : i))}
+                              >
+                                {item.customName || item.rawBaseName}
+                              </span>
+                              <span className="text-[11px] text-zinc-500 uppercase">
+                                .{item.originalExt}
+                              </span>
+                              <button
+                                onClick={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEditingName: true } : i))}
+                                className="opacity-0 group-hover/name:opacity-100 p-0.5 text-zinc-500 hover:text-zinc-300 transition"
+                                title="重命名"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
 
-            <button
-              onClick={async () => {
-                const res = await fetch('/sample-test.wav');
-                const blob = await res.blob();
-                const file = new File([blob], 'sample-test.wav', { type: 'audio/wav' });
-                addFiles([file]);
-              }}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-300 border border-slate-700/50 transition active:scale-95"
-            >
-              🧪 测试音频 (WAV)
-            </button>
-            <button
-              onClick={handlePasteClipboard}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/90 text-slate-200 border border-slate-700 transition active:scale-95 shadow-sm"
-              title="读取剪贴板中的图片或录音"
-            >
-              <ClipboardCopy className="w-4 h-4 text-emerald-400" />
-              <span>从剪贴板粘贴</span>
-            </button>
-            {clipboardStatus && (
-              <span className="text-indigo-300 animate-fade-in font-medium">{clipboardStatus}</span>
-            )}
-          </div>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">
+                          {formatBytes(item.size)}
+                          {item.status === 'success' && (
+                            <span className="text-zinc-400"> ➔ {getOutputFilename(item)} ({formatBytes(item.resultSize)})</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
-          <div className="flex items-center gap-2 text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>100% 浏览器内运算 · 数据永不离开本机</span>
-          </div>
-        </div>
+                    {/* Right: Target Selector & Action controls */}
+                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t border-zinc-800/40 sm:border-0">
+                      
+                      {/* Format Selector */}
+                      <div className="relative">
+                        <select
+                          value={item.targetFormat}
+                          disabled={item.status === 'converting'}
+                          onChange={(e) => {
+                            setItems(prev => prev.map(i => i.id === item.id ? { 
+                              ...i, 
+                              targetFormat: e.target.value,
+                              status: 'idle',
+                              resultUrl: null,
+                              resultBlob: null 
+                            } : i));
+                          }}
+                          className="appearance-none bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-xs font-medium rounded-lg pl-2.5 pr-7 py-1.5 focus:outline-none focus:border-zinc-500 cursor-pointer transition"
+                        >
+                          {item.category === 'audio' ? (
+                            SUPPORTED_AUDIO_FORMATS.map(f => (
+                              <option key={f.ext} value={f.ext}>{f.label}</option>
+                            ))
+                          ) : (
+                            SUPPORTED_IMAGE_FORMATS.map(f => (
+                              <option key={f.ext} value={f.ext}>{f.label}</option>
+                            ))
+                          )}
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-500 absolute right-2 top-2.5 pointer-events-none" />
+                      </div>
 
-        {/* Action Header when items exist */}
-        {items.length > 0 && (
-          <div className="flex items-center justify-between pt-2">
-            <h2 className="text-sm font-semibold text-slate-300">
-              待转换任务 ({items.length})
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleConvertAll}
-                className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>全部一键转换</span>
-              </button>
-              <button
-                onClick={clearAll}
-                className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/40 hover:text-rose-400 text-slate-400 border border-slate-700/60 transition"
-                title="清空列表"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                      {/* State Action Buttons */}
+                      {item.status === 'idle' && (
+                        <button
+                          onClick={() => handleConvert(item)}
+                          className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded-lg transition active:scale-95 font-medium"
+                        >
+                          转换
+                        </button>
+                      )}
+
+                      {item.status === 'converting' && (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 font-medium">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-300" />
+                          <span>{item.category === 'audio' ? `${item.progress}%` : '处理中'}</span>
+                        </div>
+                      )}
+
+                      {item.status === 'error' && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-red-400 flex items-center gap-1" title={item.error}>
+                            <AlertCircle className="w-3 h-3" />
+                            失败
+                          </span>
+                          <button
+                            onClick={() => handleConvert(item)}
+                            className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded"
+                          >
+                            重试
+                          </button>
+                        </div>
+                      )}
+
+                      {item.status === 'success' && (
+                        <div className="flex items-center gap-1.5">
+                          {/* Audio preview */}
+                          {item.category === 'audio' && item.resultUrl && (
+                            <>
+                              <audio 
+                                id={`audio-player-${item.id}`} 
+                                src={item.resultUrl} 
+                                onEnded={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isPlaying: false } : i))}
+                                className="hidden" 
+                              />
+                              <button
+                                onClick={() => togglePlayAudio(item)}
+                                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+                                title="试听"
+                              >
+                                {item.isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                              </button>
+                            </>
+                          )}
+
+                          {/* Share button */}
+                          <button
+                            onClick={() => handleShare(item)}
+                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+                            title="分享 / 转发"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Download button */}
+                          <button
+                            onClick={() => handleDownload(item)}
+                            className="text-xs bg-zinc-100 hover:bg-white text-black font-medium px-3 py-1.5 rounded-lg transition active:scale-95 flex items-center gap-1"
+                            title="保存到本地"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>导出</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Remove item */}
+                      <button
+                        onClick={() => removeItem(item.id)}
+                        className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+                        title="移除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+
+                    </div>
+                  </div>
+
+                  {/* Converting Progress Bar */}
+                  {item.status === 'converting' && (
+                    <div className="w-full bg-zinc-800 rounded-full h-1 overflow-hidden">
+                      <div 
+                        className="bg-zinc-300 h-full transition-all duration-200"
+                        style={{ width: `${item.progress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* File Cards List */}
-        <div className="space-y-3">
-          {items.map(item => (
-            <div 
-              key={item.id} 
-              className="rounded-2xl bg-slate-900/80 border border-slate-800/80 p-4 shadow-sm flex flex-col gap-3 transition hover:border-slate-700"
-            >
-              {/* Top row: Icon, Name, Target Format Selector, Actions */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center justify-center shrink-0">
-                    {item.category === 'audio' ? (
-                      <FileAudio className="w-5 h-5 text-indigo-400" />
-                    ) : item.category === 'image' ? (
-                      <FileImage className="w-5 h-5 text-emerald-400" />
-                    ) : (
-                      <FileQuestion className="w-5 h-5 text-amber-400" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white truncate" title={item.name}>
-                      {item.name}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {formatBytes(item.size)} · <span className="uppercase text-slate-300 font-semibold">{item.originalExt}</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Target Selector */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-slate-400 hidden sm:inline">转换为:</span>
-                  <select
-                    value={item.targetFormat}
-                    disabled={item.status === 'converting'}
-                    onChange={(e) => {
-                      setItems(prev => prev.map(i => i.id === item.id ? { 
-                        ...i, 
-                        targetFormat: e.target.value,
-                        status: 'idle',
-                        resultUrl: null,
-                        resultFile: null 
-                      } : i));
-                    }}
-                    className="bg-slate-800 text-indigo-300 border border-slate-700 text-xs font-semibold rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    {item.category === 'audio' ? (
-                      SUPPORTED_AUDIO_FORMATS.map(f => (
-                        <option key={f.ext} value={f.ext}>{f.label}</option>
-                      ))
-                    ) : (
-                      SUPPORTED_IMAGE_FORMATS.map(f => (
-                        <option key={f.ext} value={f.ext}>{f.label}</option>
-                      ))
-                    )}
-                  </select>
-
-                  <button
-                    onClick={() => removeItem(item.id)}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Progress Bar (during conversion) */}
-              {item.status === 'converting' && (
-                <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-indigo-500 h-full transition-all duration-300"
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-              )}
-
-              {/* Bottom row: Conversion status & Result download / share */}
-              <div className="flex items-center justify-between pt-1 text-xs border-t border-slate-800/60">
-                <div>
-                  {item.status === 'idle' && (
-                    <span className="text-slate-400">准备就绪</span>
-                  )}
-                  {item.status === 'converting' && (
-                    <span className="text-indigo-400 flex items-center gap-1.5 font-medium animate-pulse">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      {item.category === 'audio' ? `FFmpeg 转换中... (${item.progress}%)` : '转换处理中...'}
-                    </span>
-                  )}
-                  {item.status === 'success' && (
-                    <span className="text-emerald-400 flex items-center gap-1 font-medium">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      已完成 ({formatBytes(item.resultSize)})
-                    </span>
-                  )}
-                  {item.status === 'error' && (
-                    <span className="text-rose-400 flex items-center gap-1 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      {item.error}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {item.status === 'idle' && (
-                    <button
-                      onClick={() => handleConvert(item)}
-                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-sm transition active:scale-95 flex items-center gap-1"
-                    >
-                      <span>开始转换</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-
-                  {item.status === 'error' && (
-                    <button
-                      onClick={() => handleConvert(item)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-medium transition active:scale-95"
-                    >
-                      重试
-                    </button>
-                  )}
-
-                  {item.status === 'success' && (
-                    <>
-                      {/* Audio preview */}
-                      {item.category === 'audio' && item.resultUrl && (
-                        <>
-                          <audio 
-                            id={`audio-player-${item.id}`} 
-                            src={item.resultUrl} 
-                            onEnded={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isPlaying: false } : i))}
-                            className="hidden" 
-                          />
-                          <button
-                            onClick={() => togglePlayAudio(item)}
-                            className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition active:scale-95 flex items-center gap-1"
-                            title="试听转换后的音频"
-                          >
-                            {item.isPlaying ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-indigo-400" />}
-                            <span>{item.isPlaying ? '暂停' : '试听'}</span>
-                          </button>
-                        </>
-                      )}
-
-                      {/* Share / Forward to other Apps (iOS, Android, Mac) */}
-                      <button
-                        onClick={() => handleShare(item)}
-                        className="px-3 py-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 font-medium transition active:scale-95 flex items-center gap-1"
-                        title="转发/分享到微信、备忘录、隔空投送等"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        <span>转发 / 分享</span>
-                      </button>
-
-                      {/* Direct Local Download */}
-                      <button
-                        onClick={() => handleDownload(item)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm shadow-emerald-600/30 transition active:scale-95 flex items-center gap-1"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>保存下载</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
       </main>
-
-      {/* iOS & Mobile Usage Guide Modal */}
-      {iosTipOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-indigo-400" />
-                iPhone / iPad 使用指南
-              </h3>
-              <button 
-                onClick={() => setIosTipOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <p className="font-semibold text-indigo-300 mb-1">📲 1. 添加到桌面变成 App</p>
-                <p className="text-slate-400">
-                  在 Safari 浏览器中点击底部【分享】按钮 ➡️ 选择【添加到主屏幕】，即可像原生 App 一样全屏无地址栏运行。
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <p className="font-semibold text-indigo-300 mb-1">🎙️ 2. 如何导入「语音备忘录」录音？</p>
-                <p className="text-slate-400">
-                  打开语音备忘录 ➡️ 点击录音的「···」 ➡️ 选择【存储到“文件”】。回到本工具点击【选择文件】➡️【选取文件】，即可直接选入 .m4a 录音转成 MP3！
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <p className="font-semibold text-indigo-300 mb-1">📤 3. 转发到微信 / 备忘录 / 其他 App</p>
-                <p className="text-slate-400">
-                  转换完成后，点击【转发 / 分享】按钮，会自动唤起 iOS 系统的分享面板，直接发给微信好友或隔空投送。
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIosTipOpen(false)}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition"
-            >
-              我知道了
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer className="mt-auto pt-10 pb-4 text-center text-xs text-slate-500">
-        <p>基于 WebAssembly + Canvas 驱动 · 100% 客户端本地计算 · 零服务器依赖</p>
-      </footer>
     </div>
   );
 }
