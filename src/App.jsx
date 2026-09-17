@@ -539,9 +539,22 @@ export default function App() {
       const files = [];
       for (const item of data) {
         for (const type of item.types) {
-          if (type.startsWith('image/') || type.startsWith('audio/')) {
+          if (
+            type.startsWith('image/') || 
+            type.startsWith('audio/') || 
+            type.startsWith('video/') || 
+            type.includes('pdf') || 
+            type.includes('document') || 
+            type.includes('sheet') || 
+            type === 'text/csv'
+          ) {
             const blob = await item.getType(type);
-            const ext = type.split('/')[1] || 'bin';
+            let ext = 'bin';
+            if (type.includes('pdf')) ext = 'pdf';
+            else if (type.includes('word') || type.includes('docx')) ext = 'docx';
+            else if (type.includes('sheet') || type.includes('excel')) ext = 'xlsx';
+            else if (type === 'text/csv') ext = 'csv';
+            else ext = type.split('/')[1] || 'bin';
             files.push(new File([blob], `clipboard_${Date.now()}.${ext}`, { type }));
           }
         }
@@ -550,13 +563,34 @@ export default function App() {
         addFiles(files);
         setClipboardFeedback(`已载入 ${files.length} 个`);
       } else {
-        setClipboardFeedback('无可用数据');
+        setClipboardFeedback('无可用文件');
       }
     } catch {
       setClipboardFeedback('权限受限');
     }
     setTimeout(() => setClipboardFeedback(''), 2000);
   };
+
+  useEffect(() => {
+    const handleGlobalPaste = (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        addFiles(Array.from(e.clipboardData.files));
+        setClipboardFeedback(`已载入 ${e.clipboardData.files.length} 个文件`);
+        setTimeout(() => setClipboardFeedback(''), 2000);
+      }
+    };
+    window.addEventListener('paste', handleGlobalPaste);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('paste') === '1') {
+      setTimeout(() => {
+        handlePasteClipboard();
+      }, 400);
+    }
+
+    return () => window.removeEventListener('paste', handleGlobalPaste);
+  }, []);
 
   const renderFormatOptions = (item) => {
     if (item.category === 'audio') {
