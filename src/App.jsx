@@ -14,6 +14,7 @@ import {
   FileMusic,
   FileImage,
   FileText,
+  FileSpreadsheet,
   Video,
   ChevronDown,
   Music,
@@ -31,18 +32,23 @@ import {
   Smartphone,
   Shield,
   Zap,
-  QrCode
+  QrCode,
+  Table,
+  Stamp,
+  Code2
 } from 'lucide-react';
 import { 
   SUPPORTED_AUDIO_FORMATS, 
   SUPPORTED_IMAGE_FORMATS, 
   SUPPORTED_VIDEO_FORMATS,
   SUPPORTED_PDF_FORMATS,
+  SUPPORTED_TABLE_FORMATS,
   getFileTypeCategory, 
   convertImage, 
   convertAudio, 
   convertVideo,
   convertPDF,
+  convertTable,
   convertImagesToPDF,
   generateQRCode,
   formatBytes 
@@ -115,6 +121,8 @@ export default function App() {
   const [docsOpen, setDocsOpen] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrText, setQrText] = useState('https://github.com');
+  const [watermarkModalOpen, setWatermarkModalOpen] = useState(false);
+  const [watermarkText, setWatermarkText] = useState('仅用于认证 防盗专用');
 
   // Settings
   const [themeId, setThemeId] = useState(() => localStorage.getItem('cs_theme') || 'dark');
@@ -142,6 +150,7 @@ export default function App() {
   const imageInputRef = useRef(null);
   const videoInputRef = useRef(null);
   const pdfInputRef = useRef(null);
+  const tableInputRef = useRef(null);
 
   const addFiles = (fileList, forceCategory = null) => {
     const newItems = Array.from(fileList).map(file => {
@@ -155,9 +164,11 @@ export default function App() {
       } else if (category === 'image') {
         defaultTarget = originalExt === 'png' ? 'webp' : 'png';
       } else if (category === 'video') {
-        defaultTarget = 'mp3'; // Extract audio by default
+        defaultTarget = 'mp3';
       } else if (category === 'pdf') {
-        defaultTarget = 'png'; // Render to PNG by default
+        defaultTarget = 'png';
+      } else if (category === 'table') {
+        defaultTarget = originalExt === 'csv' ? 'xlsx' : 'csv';
       }
 
       return {
@@ -193,7 +204,8 @@ export default function App() {
   };
 
   const getOutputFilename = (item) => {
-    const finalExt = item.targetFormat === 'jpeg' ? 'jpg' : item.targetFormat;
+    let finalExt = item.targetFormat === 'jpeg' ? 'jpg' : item.targetFormat;
+    if (finalExt === 'base64') finalExt = 'txt';
     const base = (item.customName || item.rawBaseName).trim() || 'output';
     return `${base}.${finalExt}`;
   };
@@ -226,6 +238,8 @@ export default function App() {
         });
       } else if (item.category === 'pdf') {
         result = await convertPDF(item.file, item.targetFormat);
+      } else if (item.category === 'table') {
+        result = await convertTable(item.file, item.targetFormat);
       } else {
         throw new Error('暂不支持该文件格式');
       }
@@ -292,6 +306,34 @@ export default function App() {
       setItems(prev => [pdfItem, ...prev]);
     } catch (err) {
       alert(`合成 PDF 失败: ${err.message}`);
+    }
+  };
+
+  // Batch watermark images
+  const handleApplyWatermark = async () => {
+    const imgItems = items.filter(i => i.category === 'image');
+    if (imgItems.length === 0) {
+      alert('队列中暂无图片，请先上传图片！');
+      return;
+    }
+    setWatermarkModalOpen(false);
+
+    for (const item of imgItems) {
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'converting', progress: 50 } : i));
+      try {
+        const result = await convertImage(item.file, 'png', { quality: 0.95, watermark: watermarkText });
+        setItems(prev => prev.map(i => i.id === item.id ? {
+          ...i,
+          customName: `${item.customName}_水印`,
+          status: 'success',
+          progress: 100,
+          resultUrl: result.url,
+          resultBlob: result.blob,
+          resultSize: result.size
+        } : i));
+      } catch (err) {
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'error', error: err.message } : i));
+      }
     }
   };
 
@@ -401,6 +443,9 @@ export default function App() {
     if (item.category === 'pdf') {
       return SUPPORTED_PDF_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
     }
+    if (item.category === 'table') {
+      return SUPPORTED_TABLE_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
+    }
     return <option value={item.originalExt}>{item.originalExt.toUpperCase()}</option>;
   };
 
@@ -417,7 +462,7 @@ export default function App() {
             <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
               <span>Convert Studio</span>
               <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded ${isLightTheme ? 'bg-slate-200 text-slate-700' : 'bg-zinc-800 text-zinc-400'}`}>
-                PRO ALL-IN-ONE
+                SWISS KNIFE
               </span>
             </div>
           </div>
@@ -464,7 +509,7 @@ export default function App() {
         type="file" 
         ref={genericInputRef} 
         multiple 
-        accept="image/*,audio/*,video/*,.pdf,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp,.mp4,.mov,.webm"
+        accept="image/*,audio/*,video/*,.pdf,.xlsx,.xls,.csv,.json,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp,.mp4,.mov,.webm"
         className="hidden" 
         onChange={(e) => {
           if (e.target.files) addFiles(e.target.files);
@@ -515,6 +560,17 @@ export default function App() {
           e.target.value = '';
         }}
       />
+      <input 
+        type="file" 
+        ref={tableInputRef} 
+        multiple 
+        accept=".xlsx,.xls,.csv,.json"
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files, 'table');
+          e.target.value = '';
+        }}
+      />
 
       {/* Main Workspace */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">
@@ -538,14 +594,14 @@ export default function App() {
             拖拽文件至此处，或点击浏览选择
           </h2>
           <p className={`text-xs ${isLightTheme ? 'text-slate-600' : 'text-zinc-300'} font-medium`}>
-            音视频互转 · 多图拼PDF · 视频抽音频/转GIF · 离线私密
+            全能离线工具箱 · 音视频/图片/表格/PDF全格式互转 · 100% 浏览器内私密运算
           </p>
         </div>
 
-        {/* Extended Specialized Entry Hubs (Multi-row Grid) */}
+        {/* Extended Specialized Entry Hubs (Organized Clean 3-Row Grid) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           
-          {/* 1. Audio */}
+          {/* Row 1: Media Essentials */}
           <button
             onClick={() => audioInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -557,7 +613,6 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP3 / WAV / M4A / FLAC</div>
           </button>
 
-          {/* 2. Image */}
           <button
             onClick={() => imageInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -569,7 +624,6 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>PNG / JPG / WebP / ICO</div>
           </button>
 
-          {/* 3. Video to Audio / GIF */}
           <button
             onClick={() => videoInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -581,7 +635,6 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP4/MOV 提音频或转动图</div>
           </button>
 
-          {/* 4. PDF Tools */}
           <button
             onClick={() => pdfInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -593,7 +646,7 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>逐页导高清图 / 提取纯文本</div>
           </button>
 
-          {/* 5. Images to PDF */}
+          {/* Row 2: Document & Productivity */}
           <button
             onClick={() => imageInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -605,7 +658,28 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>发票/照片拼单份 A4</div>
           </button>
 
-          {/* 6. QR Code Maker */}
+          <button
+            onClick={() => tableInputRef.current?.click()}
+            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <Table className="w-4 h-4" />
+            </div>
+            <div className="font-semibold text-xs">Excel / CSV / JSON</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>表格与数据互转</div>
+          </button>
+
+          <button
+            onClick={() => setWatermarkModalOpen(true)}
+            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <Stamp className="w-4 h-4" />
+            </div>
+            <div className="font-semibold text-xs">图片防盗水印</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>证件/照片加专属水印</div>
+          </button>
+
           <button
             onClick={() => setQrModalOpen(true)}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -617,7 +691,18 @@ export default function App() {
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>网址或文本转矢量码</div>
           </button>
 
-          {/* 7. Clipboard Direct */}
+          {/* Row 3: Quick Inputs & Manual */}
+          <button
+            onClick={() => audioInputRef.current?.click()}
+            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <Mic className="w-4 h-4" />
+            </div>
+            <div className="font-semibold text-xs">录音机导入</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>手机 .m4a 快速转码</div>
+          </button>
+
           <button
             onClick={handlePasteClipboard}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
@@ -627,20 +712,19 @@ export default function App() {
             </div>
             <div className="font-semibold text-xs">剪贴板直读</div>
             <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>
-              {clipboardFeedback || '一键读入复制的数据'}
+              {clipboardFeedback || '一键读入复制数据'}
             </div>
           </button>
 
-          {/* 8. User Guide / Docs (Restored!) */}
           <button
             onClick={() => setDocsOpen(true)}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm col-span-2`}
           >
             <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <BookOpen className="w-4 h-4 text-indigo-400" />
             </div>
-            <div className="font-semibold text-xs">功能说明与技巧</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>iOS技巧 / 格式全览</div>
+            <div className="font-semibold text-xs">功能说明与全能技巧</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>iOS技巧 / 格式全览 / 无服务器说明</div>
           </button>
 
         </div>
@@ -688,6 +772,7 @@ export default function App() {
                         {item.category === 'image' && <FileImage className="w-4 h-4" />}
                         {item.category === 'video' && <Video className="w-4 h-4" />}
                         {item.category === 'pdf' && <FileText className="w-4 h-4" />}
+                        {item.category === 'table' && <FileSpreadsheet className="w-4 h-4" />}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -869,6 +954,40 @@ export default function App() {
 
       </main>
 
+      {/* Watermark Modal */}
+      {watermarkModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`rounded-2xl border ${currentTheme.border} ${isLightTheme ? 'bg-white text-slate-900' : 'bg-[#0f141f] text-zinc-100'} max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150`}>
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <Stamp className="w-4 h-4 text-emerald-400" />
+                <span>一键添加图片水印</span>
+              </div>
+              <button onClick={() => setWatermarkModalOpen(false)} className="p-1 rounded-lg text-zinc-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold">水印文字（如：仅供办证使用）：</label>
+              <input
+                type="text"
+                value={watermarkText}
+                onChange={(e) => setWatermarkText(e.target.value)}
+                placeholder="输入防盗文字..."
+                className={`w-full text-xs p-2.5 rounded-xl border ${currentTheme.border} focus:outline-none ${isLightTheme ? 'bg-slate-50 text-black' : 'bg-zinc-950 text-white'}`}
+              />
+              <p className={`text-[11px] ${currentTheme.textDim}`}>将自动为队列中的所有图片打上半透明右下角防伪文字。</p>
+            </div>
+            <button
+              onClick={handleApplyWatermark}
+              className={`w-full py-2.5 rounded-xl ${currentTheme.btnPrimary} font-medium text-xs transition`}
+            >
+              对队列中图片批量打水印
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* QR Code Maker Modal */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1012,7 +1131,7 @@ export default function App() {
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800/60">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-semibold text-sm">功能说明与全能支持</h3>
+                <h3 className="font-semibold text-sm">功能说明与全能指南</h3>
               </div>
               <button 
                 onClick={() => setDocsOpen(false)}
@@ -1061,6 +1180,18 @@ export default function App() {
                 <div className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
                   <div className="flex items-start gap-2">
                     <span className="text-amber-400 font-bold">•</span>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>表格数据互转：</strong>支持 Excel(.xlsx)、CSV、JSON 自由双向解析与互转。</div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>图片防盗水印：</strong>一键批量给证件、私密照片加盖半透明右下角防盗水印。</div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>图片转 Base64：</strong>支持将图片直接编码为文本代码，方便开发与贴入文档。</div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
                     <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>视频抽音频/GIF：</strong>支持 MP4/MOV 抽取 MP3/M4A 或转微信动图表情包。</div>
                   </div>
                   <div className="flex items-start gap-2">
@@ -1070,10 +1201,6 @@ export default function App() {
                   <div className="flex items-start gap-2">
                     <span className="text-amber-400 font-bold">•</span>
                     <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>PDF 解析：</strong>PDF 高清页面渲染转 PNG、或提取纯文本 TXT。</div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-amber-400 font-bold">•</span>
-                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>二维码生成：</strong>离线生成高清黑白矢量二维码图片。</div>
                   </div>
                 </div>
               </div>

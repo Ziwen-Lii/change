@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import QRCode from 'qrcode';
+import * as XLSX from 'xlsx';
 
 // Configure pdfjs worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -29,6 +30,7 @@ export const SUPPORTED_IMAGE_FORMATS = [
   { ext: 'bmp', label: 'BMP', mime: 'image/bmp' },
   { ext: 'ico', label: 'ICO (图标)', mime: 'image/x-icon' },
   { ext: 'pdf', label: 'PDF (单页文档)', mime: 'application/pdf' },
+  { ext: 'base64', label: 'Base64 (编码文本)', mime: 'text/plain' },
 ];
 
 export const SUPPORTED_VIDEO_FORMATS = [
@@ -42,6 +44,12 @@ export const SUPPORTED_PDF_FORMATS = [
   { ext: 'png', label: '逐页导出为高清 PNG', mime: 'image/png' },
   { ext: 'jpeg', label: '逐页导出为 JPG', mime: 'image/jpeg' },
   { ext: 'txt', label: '提取纯文本 (TXT)', mime: 'text/plain' },
+];
+
+export const SUPPORTED_TABLE_FORMATS = [
+  { ext: 'json', label: '转换为 JSON 数据', mime: 'application/json' },
+  { ext: 'csv', label: '转换为 CSV 表格', mime: 'text/csv' },
+  { ext: 'xlsx', label: '转换为 Excel (.xlsx)', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
 ];
 
 export async function getFFmpeg(onProgress) {
@@ -90,11 +98,15 @@ export function getFileTypeCategory(file) {
   const audioExts = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus', 'wma', 'aiff', 'amr'];
   const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'heic', 'heif', 'tiff'];
   const videoExts = ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'];
+  const tableExts = ['xlsx', 'xls', 'csv', 'json'];
   const pdfExts = ['pdf'];
 
   const ext = name.split('.').pop();
   if (type === 'application/pdf' || pdfExts.includes(ext)) {
     return 'pdf';
+  }
+  if (tableExts.includes(ext) || type === 'text/csv' || type === 'application/json') {
+    return 'table';
   }
   if (type.startsWith('video/') || videoExts.includes(ext)) {
     return 'video';
@@ -109,11 +121,31 @@ export function getFileTypeCategory(file) {
 }
 
 /**
- * Convert Image using Canvas or export single-page PDF
+ * Convert Image using Canvas, Base64 export, or single-page PDF
  */
-export async function convertImage(file, targetFormat, options = { quality: 0.92, icoSize: 64 }) {
+export async function convertImage(file, targetFormat, options = { quality: 0.92, icoSize: 64, watermark: '' }) {
   if (targetFormat === 'pdf') {
     return convertImagesToPDF([file]);
+  }
+
+  if (targetFormat === 'base64') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result;
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const convertedFile = new File([blob], `${baseName}_base64.txt`, { type: 'text/plain' });
+        resolve({
+          file: convertedFile,
+          blob,
+          url: URL.createObjectURL(blob),
+          size: blob.size,
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   return new Promise((resolve, reject) => {
@@ -141,6 +173,21 @@ export async function convertImage(file, targetFormat, options = { quality: 0.92
       }
 
       ctx.drawImage(img, 0, 0, width, height);
+
+      // Apply watermark if configured
+      if (options.watermark) {
+        ctx.save();
+        ctx.font = `bold ${Math.max(16, Math.floor(width / 25))}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        const text = options.watermark;
+        ctx.strokeText(text, width - 20, height - 20);
+        ctx.fillText(text, width - 20, height - 20);
+        ctx.restore();
+      }
 
       let mimeType = `image/${targetFormat}`;
       if (targetFormat === 'jpg') mimeType = 'image/jpeg';
@@ -245,7 +292,6 @@ export async function convertVideo(file, targetFormat, onProgress) {
     const args = ['-i', inputName];
 
     if (targetFormat === 'gif') {
-      // Create high-quality compact GIF: max 15fps, width 480
       args.push('-vf', 'fps=12,scale=480:-1:flags=lanczos', '-t', '10');
     } else if (targetFormat === 'mp3') {
       args.push('-vn', '-c:a', 'libmp3lame', '-q:a', '2');
@@ -295,7 +341,6 @@ export async function convertImagesToPDF(imageFiles) {
 
     if (isPng) {
       image = await pdfDoc.embedPng(arrayBuffer).catch(async () => {
-        // Fallback: draw through canvas as jpg
         const bmpBlob = await convertImage(file, 'jpeg');
         const buf = await bmpBlob.blob.arrayBuffer();
         return await pdfDoc.embedJpg(buf);
@@ -308,11 +353,9 @@ export async function convertImagesToPDF(imageFiles) {
       });
     }
 
-    // A4 dimensions in points: 595.28 x 841.89
     const page = pdfDoc.addPage([595.28, 841.89]);
     const { width: imgW, height: imgH } = image;
     
-    // Scale image to fit within A4 with margins (margin 20)
     const maxWidth = 555;
     const maxHeight = 801;
     const scale = Math.min(maxWidth / imgW, maxHeight / imgH, 1);
@@ -345,7 +388,7 @@ export async function convertImagesToPDF(imageFiles) {
 }
 
 /**
- * Process PDF: Extract text or render first/all pages to Image
+ * Process PDF: Extract text or render first page to Image
  */
 export async function convertPDF(file, targetFormat) {
   const arrayBuffer = await file.arrayBuffer();
@@ -371,9 +414,9 @@ export async function convertPDF(file, targetFormat) {
     };
   }
 
-  // Render Page 1 to Image (PNG / JPEG)
+  // Render Page 1 to Image
   const page = await pdf.getPage(1);
-  const viewport = page.getViewport({ scale: 2.0 }); // 2x high-res
+  const viewport = page.getViewport({ scale: 2.0 });
   const canvas = document.createElement('canvas');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
@@ -401,6 +444,69 @@ export async function convertPDF(file, targetFormat) {
       });
     }, mimeType, 0.95);
   });
+}
+
+/**
+ * Excel / CSV / JSON Table Data Conversion
+ */
+export async function convertTable(file, targetFormat) {
+  const originalExt = file.name.split('.').pop().toLowerCase();
+  const baseName = file.name.replace(/\.[^/.]+$/, '');
+
+  let workbook;
+
+  if (originalExt === 'json') {
+    const text = await file.text();
+    const jsonData = JSON.parse(text);
+    const worksheet = XLSX.utils.json_to_sheet(Array.isArray(jsonData) ? jsonData : [jsonData]);
+    workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+  } else {
+    const data = await file.arrayBuffer();
+    workbook = XLSX.read(data, { type: 'array' });
+  }
+
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+
+  if (targetFormat === 'json') {
+    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    const jsonStr = JSON.stringify(jsonData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const convertedFile = new File([blob], `${baseName}.json`, { type: 'application/json' });
+    return {
+      file: convertedFile,
+      blob,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+    };
+  }
+
+  if (targetFormat === 'csv') {
+    const csvStr = XLSX.utils.sheet_to_csv(worksheet);
+    const blob = new Blob([csvStr], { type: 'text/csv;charset=utf-8' });
+    const convertedFile = new File([blob], `${baseName}.csv`, { type: 'text/csv' });
+    return {
+      file: convertedFile,
+      blob,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+    };
+  }
+
+  if (targetFormat === 'xlsx') {
+    const outBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([outBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const convertedFile = new File([blob], `${baseName}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    return {
+      file: convertedFile,
+      blob,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+    };
+  }
+
+  throw new Error('未知的表格转换格式');
 }
 
 /**
