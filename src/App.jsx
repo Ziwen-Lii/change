@@ -48,13 +48,13 @@ const THEMES = {
     badge: '默认',
     bg: 'bg-[#090d14]',
     navbarBg: 'bg-[#090d14]/90',
-    border: 'border-zinc-800/80',
-    cardBg: 'bg-zinc-900/40',
-    cardHover: 'hover:bg-zinc-900/80',
-    btnPrimary: 'bg-white hover:bg-zinc-100 text-black',
+    border: 'border-zinc-800',
+    cardBg: 'bg-zinc-900/60',
+    cardHover: 'hover:bg-zinc-900/90',
+    btnPrimary: 'bg-white hover:bg-zinc-200 text-black font-semibold',
     accentColor: '#ffffff',
-    textMuted: 'text-zinc-400',
-    textDim: 'text-zinc-500',
+    textMuted: 'text-zinc-300',
+    textDim: 'text-zinc-400',
   },
   slate: {
     id: 'slate',
@@ -62,13 +62,13 @@ const THEMES = {
     badge: '沉浸',
     bg: 'bg-[#0f172a]',
     navbarBg: 'bg-[#0f172a]/90',
-    border: 'border-slate-800/80',
-    cardBg: 'bg-slate-900/50',
-    cardHover: 'hover:bg-slate-900/80',
-    btnPrimary: 'bg-indigo-500 hover:bg-indigo-400 text-white',
+    border: 'border-slate-800',
+    cardBg: 'bg-slate-900/70',
+    cardHover: 'hover:bg-slate-900',
+    btnPrimary: 'bg-indigo-500 hover:bg-indigo-400 text-white font-semibold',
     accentColor: '#6366f1',
-    textMuted: 'text-slate-400',
-    textDim: 'text-slate-500',
+    textMuted: 'text-slate-200',
+    textDim: 'text-slate-300',
   },
   emerald: {
     id: 'emerald',
@@ -76,27 +76,27 @@ const THEMES = {
     badge: '复古',
     bg: 'bg-[#061412]',
     navbarBg: 'bg-[#061412]/90',
-    border: 'border-emerald-950/80',
-    cardBg: 'bg-[#0a1e1b]/40',
-    cardHover: 'hover:bg-[#0a1e1b]/80',
+    border: 'border-emerald-950',
+    cardBg: 'bg-[#0a1e1b]/60',
+    cardHover: 'hover:bg-[#0a1e1b]/90',
     btnPrimary: 'bg-emerald-500 hover:bg-emerald-400 text-black font-semibold',
     accentColor: '#10b981',
-    textMuted: 'text-emerald-300/70',
-    textDim: 'text-emerald-500/60',
+    textMuted: 'text-emerald-200',
+    textDim: 'text-emerald-300/80',
   },
   light: {
     id: 'light',
     name: '素雅纯白',
     badge: '明亮',
-    bg: 'bg-[#f8fafc]',
-    navbarBg: 'bg-[#f8fafc]/90',
-    border: 'border-slate-200',
+    bg: 'bg-[#f1f5f9]',
+    navbarBg: 'bg-white/95',
+    border: 'border-slate-300',
     cardBg: 'bg-white',
     cardHover: 'hover:bg-slate-50',
-    btnPrimary: 'bg-black hover:bg-zinc-800 text-white',
+    btnPrimary: 'bg-slate-900 hover:bg-black text-white font-semibold',
     accentColor: '#0f172a',
-    textMuted: 'text-slate-600',
-    textDim: 'text-slate-400',
+    textMuted: 'text-slate-700',
+    textDim: 'text-slate-600',
   }
 };
 
@@ -434,7 +434,7 @@ export default function App() {
           <h2 className="text-sm font-semibold mb-1">
             拖拽文件至此处，或点击浏览选择
           </h2>
-          <p className={`text-xs ${currentTheme.textDim} font-normal`}>
+          <p className={`text-xs ${isLightTheme ? 'text-slate-600' : 'text-zinc-300'} font-medium`}>
             全格式自适应解析 · 离线转换 · 原地重命名
           </p>
         </div>
@@ -446,44 +446,44 @@ export default function App() {
             onClick={() => audioInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <Music className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">音频转换</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>MP3 / WAV / M4A</div>
+            <div className="font-semibold text-xs">音频转换</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP3 / WAV / M4A</div>
           </button>
 
           <button
             onClick={() => imageInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <ImageIcon className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">图像转换</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>PNG / JPG / WebP</div>
+            <div className="font-semibold text-xs">图像转换</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>PNG / JPG / WebP</div>
           </button>
 
           <button
             onClick={() => audioInputRef.current?.click()}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <Mic className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">录音机导入</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>手机 .m4a 转 MP3</div>
+            <div className="font-semibold text-xs">录音机导入</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>手机 .m4a 转 MP3</div>
           </button>
 
           <button
             onClick={handlePasteClipboard}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <ClipboardCopy className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">剪贴板直读</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>
+            <div className="font-semibold text-xs">剪贴板直读</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>
               {clipboardFeedback || '读取剪贴板数据'}
             </div>
           </button>
@@ -492,11 +492,11 @@ export default function App() {
             onClick={() => setDocsOpen(true)}
             className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm col-span-2 sm:col-span-1`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
               <BookOpen className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">使用手册</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>格式支持与技巧</div>
+            <div className="font-semibold text-xs">使用手册</div>
+            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>格式支持与技巧</div>
           </button>
 
         </div>
@@ -569,13 +569,13 @@ export default function App() {
                           ) : (
                             <div className="flex items-center gap-1.5 group/name">
                               <span 
-                                className="text-xs font-medium truncate cursor-pointer hover:underline"
+                                className={`text-xs font-semibold truncate cursor-pointer hover:underline ${isLightTheme ? 'text-slate-900' : 'text-white'}`}
                                 title="点击修改文件名"
                                 onClick={() => setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEditingName: true } : i))}
                               >
                                 {item.customName || item.rawBaseName}
                               </span>
-                              <span className={`text-[11px] ${currentTheme.textDim} uppercase font-mono`}>
+                              <span className={`text-[11px] font-mono font-medium uppercase ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'}`}>
                                 .{item.originalExt}
                               </span>
                               <button
@@ -589,10 +589,10 @@ export default function App() {
                           )}
                         </div>
 
-                        <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>
+                        <div className={`text-[11px] font-medium mt-0.5 ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'}`}>
                           {formatBytes(item.size)}
                           {item.status === 'success' && (
-                            <span className={isLightTheme ? 'text-slate-800' : 'text-zinc-300'}> ➔ {getOutputFilename(item)} ({formatBytes(item.resultSize)})</span>
+                            <span className={isLightTheme ? 'text-slate-900 font-semibold' : 'text-zinc-200 font-semibold'}> ➔ {getOutputFilename(item)} ({formatBytes(item.resultSize)})</span>
                           )}
                         </div>
                       </div>
