@@ -13,6 +13,8 @@ import {
   Plus,
   FileMusic,
   FileImage,
+  FileText,
+  Video,
   ChevronDown,
   Music,
   Image as ImageIcon,
@@ -29,18 +31,23 @@ import {
   Smartphone,
   Shield,
   Zap,
-  Info
+  QrCode
 } from 'lucide-react';
 import { 
   SUPPORTED_AUDIO_FORMATS, 
   SUPPORTED_IMAGE_FORMATS, 
+  SUPPORTED_VIDEO_FORMATS,
+  SUPPORTED_PDF_FORMATS,
   getFileTypeCategory, 
   convertImage, 
   convertAudio, 
+  convertVideo,
+  convertPDF,
+  convertImagesToPDF,
+  generateQRCode,
   formatBytes 
 } from './utils/converter';
 
-// Color themes configuration
 const THEMES = {
   dark: {
     id: 'dark',
@@ -106,8 +113,10 @@ export default function App() {
   const [clipboardFeedback, setClipboardFeedback] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrText, setQrText] = useState('https://github.com');
 
-  // Settings State with LocalStorage persistence
+  // Settings
   const [themeId, setThemeId] = useState(() => localStorage.getItem('cs_theme') || 'dark');
   const [imageQuality, setImageQuality] = useState(() => parseFloat(localStorage.getItem('cs_img_quality') || '0.92'));
   const [autoDownload, setAutoDownload] = useState(() => localStorage.getItem('cs_auto_download') === 'true');
@@ -131,6 +140,8 @@ export default function App() {
   const genericInputRef = useRef(null);
   const audioInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const videoInputRef = useRef(null);
+  const pdfInputRef = useRef(null);
 
   const addFiles = (fileList, forceCategory = null) => {
     const newItems = Array.from(fileList).map(file => {
@@ -143,6 +154,10 @@ export default function App() {
         defaultTarget = originalExt === 'mp3' ? 'wav' : 'mp3';
       } else if (category === 'image') {
         defaultTarget = originalExt === 'png' ? 'webp' : 'png';
+      } else if (category === 'video') {
+        defaultTarget = 'mp3'; // Extract audio by default
+      } else if (category === 'pdf') {
+        defaultTarget = 'png'; // Render to PNG by default
       }
 
       return {
@@ -205,8 +220,14 @@ export default function App() {
         result = await convertAudio(item.file, item.targetFormat, (prog) => {
           setItems(prev => prev.map(i => i.id === item.id ? { ...i, progress: prog } : i));
         });
+      } else if (item.category === 'video') {
+        result = await convertVideo(item.file, item.targetFormat, (prog) => {
+          setItems(prev => prev.map(i => i.id === item.id ? { ...i, progress: prog } : i));
+        });
+      } else if (item.category === 'pdf') {
+        result = await convertPDF(item.file, item.targetFormat);
       } else {
-        throw new Error('不支持的文件格式');
+        throw new Error('暂不支持该文件格式');
       }
 
       setItems(prev => prev.map(i => i.id === item.id ? {
@@ -218,7 +239,6 @@ export default function App() {
         resultSize: result.size
       } : i));
 
-      // Auto download if enabled in settings
       if (autoDownload && result.url) {
         const dummyItem = { ...item, resultUrl: result.url };
         handleDownload(dummyItem);
@@ -237,6 +257,54 @@ export default function App() {
     items.filter(i => i.status === 'idle' || i.status === 'error').forEach(item => {
       handleConvert(item);
     });
+  };
+
+  // Convert multiple selected images into a single PDF
+  const handleMergeImagesToPDF = async () => {
+    const imgItems = items.filter(i => i.category === 'image');
+    if (imgItems.length === 0) {
+      alert('队列中没有图片文件，请先添加图片！');
+      return;
+    }
+
+    try {
+      const files = imgItems.map(i => i.file);
+      const result = await convertImagesToPDF(files);
+      const pdfItem = {
+        id: Math.random().toString(36).substring(2, 9),
+        file: result.file,
+        name: result.file.name,
+        rawBaseName: 'merged_document',
+        customName: '合成多图文档',
+        isEditingName: false,
+        size: result.size,
+        category: 'pdf',
+        originalExt: 'pdf',
+        targetFormat: 'pdf',
+        status: 'success',
+        progress: 100,
+        resultUrl: result.url,
+        resultBlob: result.blob,
+        resultSize: result.size,
+        error: null,
+        isPlaying: false,
+      };
+      setItems(prev => [pdfItem, ...prev]);
+    } catch (err) {
+      alert(`合成 PDF 失败: ${err.message}`);
+    }
+  };
+
+  // Quick QR Code creation
+  const handleCreateQRCode = async () => {
+    if (!qrText.trim()) return;
+    try {
+      const res = await generateQRCode(qrText.trim());
+      addFiles([res.file], 'image');
+      setQrModalOpen(false);
+    } catch (err) {
+      alert('生成二维码失败: ' + err.message);
+    }
   };
 
   const handleShare = async (item) => {
@@ -320,6 +388,22 @@ export default function App() {
     setTimeout(() => setClipboardFeedback(''), 2000);
   };
 
+  const renderFormatOptions = (item) => {
+    if (item.category === 'audio') {
+      return SUPPORTED_AUDIO_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
+    }
+    if (item.category === 'image') {
+      return SUPPORTED_IMAGE_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
+    }
+    if (item.category === 'video') {
+      return SUPPORTED_VIDEO_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
+    }
+    if (item.category === 'pdf') {
+      return SUPPORTED_PDF_FORMATS.map(f => <option key={f.ext} value={f.ext}>{f.label}</option>);
+    }
+    return <option value={item.originalExt}>{item.originalExt.toUpperCase()}</option>;
+  };
+
   return (
     <div className={`min-h-screen ${currentTheme.bg} ${isLightTheme ? 'text-zinc-900' : 'text-zinc-100'} font-sans antialiased flex flex-col transition-colors duration-300`}>
       
@@ -333,7 +417,7 @@ export default function App() {
             <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
               <span>Convert Studio</span>
               <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded ${isLightTheme ? 'bg-slate-200 text-slate-700' : 'bg-zinc-800 text-zinc-400'}`}>
-                PRO
+                PRO ALL-IN-ONE
               </span>
             </div>
           </div>
@@ -349,7 +433,6 @@ export default function App() {
             </button>
           )}
 
-          {/* Docs / Guide Button */}
           <button
             onClick={() => setDocsOpen(true)}
             className={`p-1.5 rounded-lg border ${currentTheme.border} ${isLightTheme ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-zinc-800 text-zinc-300'} transition active:scale-95`}
@@ -358,7 +441,6 @@ export default function App() {
             <HelpCircle className="w-4 h-4" />
           </button>
 
-          {/* Settings Button */}
           <button
             onClick={() => setSettingsOpen(true)}
             className={`p-1.5 rounded-lg border ${currentTheme.border} ${isLightTheme ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-zinc-800 text-zinc-300'} transition active:scale-95`}
@@ -367,7 +449,6 @@ export default function App() {
             <Settings2 className="w-4 h-4" />
           </button>
 
-          {/* Add file button */}
           <button
             onClick={() => genericInputRef.current?.click()}
             className={`text-xs font-medium ${currentTheme.btnPrimary} px-3.5 py-1.5 rounded-lg transition active:scale-95 flex items-center gap-1.5 shadow-sm`}
@@ -383,7 +464,7 @@ export default function App() {
         type="file" 
         ref={genericInputRef} 
         multiple 
-        accept="image/*,audio/*,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp"
+        accept="image/*,audio/*,video/*,.pdf,.m4a,.aac,.opus,.flac,.wav,.ogg,.wma,.ico,.webp,.svg,.bmp,.mp4,.mov,.webm"
         className="hidden" 
         onChange={(e) => {
           if (e.target.files) addFiles(e.target.files);
@@ -412,6 +493,28 @@ export default function App() {
           e.target.value = '';
         }}
       />
+      <input 
+        type="file" 
+        ref={videoInputRef} 
+        multiple 
+        accept="video/*,.mp4,.mov,.webm,.mkv,.avi"
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files, 'video');
+          e.target.value = '';
+        }}
+      />
+      <input 
+        type="file" 
+        ref={pdfInputRef} 
+        multiple 
+        accept=".pdf,application/pdf"
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files, 'pdf');
+          e.target.value = '';
+        }}
+      />
 
       {/* Main Workspace */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">
@@ -435,68 +538,97 @@ export default function App() {
             拖拽文件至此处，或点击浏览选择
           </h2>
           <p className={`text-xs ${isLightTheme ? 'text-slate-600' : 'text-zinc-300'} font-medium`}>
-            全格式自适应解析 · 离线转换 · 原地重命名
+            音视频互转 · 多图拼PDF · 视频抽音频/转GIF · 离线私密
           </p>
         </div>
 
-        {/* Specialized Entry Hub */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {/* Extended Specialized Entry Hubs */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
           
+          {/* 1. Audio */}
           <button
             onClick={() => audioInputRef.current?.click()}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
-              <Music className="w-4 h-4" />
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <Music className="w-3.5 h-3.5" />
             </div>
             <div className="font-semibold text-xs">音频转换</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP3 / WAV / M4A</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP3/WAV/FLAC</div>
           </button>
 
+          {/* 2. Image */}
           <button
             onClick={() => imageInputRef.current?.click()}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
-              <ImageIcon className="w-4 h-4" />
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <ImageIcon className="w-3.5 h-3.5" />
             </div>
             <div className="font-semibold text-xs">图像转换</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>PNG / JPG / WebP</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>PNG/JPG/WebP</div>
           </button>
 
+          {/* 3. Video to Audio / GIF */}
           <button
-            onClick={() => audioInputRef.current?.click()}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+            onClick={() => videoInputRef.current?.click()}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
-              <Mic className="w-4 h-4" />
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <Video className="w-3.5 h-3.5" />
             </div>
-            <div className="font-semibold text-xs">录音机导入</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>手机 .m4a 转 MP3</div>
+            <div className="font-semibold text-xs">视频抽音频/GIF</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>MP4/MOV转MP3</div>
           </button>
 
+          {/* 4. PDF Tools */}
+          <button
+            onClick={() => pdfInputRef.current?.click()}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <FileText className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-semibold text-xs">PDF 解析</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>导出PNG/纯文本</div>
+          </button>
+
+          {/* 5. Images to PDF */}
+          <button
+            onClick={() => imageInputRef.current?.click()}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <FileImage className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-semibold text-xs">图片合成 PDF</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>多图生成单份A4</div>
+          </button>
+
+          {/* 6. QR Code Maker */}
+          <button
+            onClick={() => setQrModalOpen(true)}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+          >
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <QrCode className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-semibold text-xs">二维码生成</div>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>文本/网址转图片</div>
+          </button>
+
+          {/* 7. Clipboard Direct */}
           <button
             onClick={handlePasteClipboard}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
+            className={`flex flex-col items-start p-3 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm`}
           >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
-              <ClipboardCopy className="w-4 h-4" />
+            <div className={`w-7 h-7 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
+              <ClipboardCopy className="w-3.5 h-3.5" />
             </div>
             <div className="font-semibold text-xs">剪贴板直读</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>
+            <div className={`text-[10px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>
               {clipboardFeedback || '读取剪贴板数据'}
             </div>
-          </button>
-
-          <button
-            onClick={() => setDocsOpen(true)}
-            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm col-span-2 sm:col-span-1`}
-          >
-            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-800' : 'bg-zinc-800 text-white'}`}>
-              <BookOpen className="w-4 h-4" />
-            </div>
-            <div className="font-semibold text-xs">使用手册</div>
-            <div className={`text-[11px] ${isLightTheme ? 'text-slate-600' : 'text-zinc-400'} font-medium mt-0.5`}>格式支持与技巧</div>
           </button>
 
         </div>
@@ -510,6 +642,14 @@ export default function App() {
                 <span className={`text-xs font-semibold uppercase tracking-wider ${currentTheme.textMuted}`}>
                   任务列表 ({items.length})
                 </span>
+                {items.filter(i => i.category === 'image').length >= 2 && (
+                  <button
+                    onClick={handleMergeImagesToPDF}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 transition"
+                  >
+                    + 将所有图片合并为单份 PDF
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -532,11 +672,10 @@ export default function App() {
                     
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className={`w-9 h-9 rounded-lg border ${currentTheme.border} flex items-center justify-center shrink-0 ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-900 text-zinc-300'}`}>
-                        {item.category === 'audio' ? (
-                          <FileMusic className="w-4 h-4" />
-                        ) : (
-                          <FileImage className="w-4 h-4" />
-                        )}
+                        {item.category === 'audio' && <FileMusic className="w-4 h-4" />}
+                        {item.category === 'image' && <FileImage className="w-4 h-4" />}
+                        {item.category === 'video' && <Video className="w-4 h-4" />}
+                        {item.category === 'pdf' && <FileText className="w-4 h-4" />}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -600,6 +739,7 @@ export default function App() {
 
                     <div className={`flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-0 ${currentTheme.border}`}>
                       
+                      {/* Format Selector */}
                       <div className="relative">
                         <select
                           value={item.targetFormat}
@@ -615,15 +755,7 @@ export default function App() {
                           }}
                           className={`appearance-none border ${currentTheme.border} text-xs font-medium rounded-lg pl-2.5 pr-7 py-1.5 focus:outline-none cursor-pointer transition ${isLightTheme ? 'bg-white text-slate-900' : 'bg-zinc-900 text-zinc-200'}`}
                         >
-                          {item.category === 'audio' ? (
-                            SUPPORTED_AUDIO_FORMATS.map(f => (
-                              <option key={f.ext} value={f.ext}>{f.label}</option>
-                            ))
-                          ) : (
-                            SUPPORTED_IMAGE_FORMATS.map(f => (
-                              <option key={f.ext} value={f.ext}>{f.label}</option>
-                            ))
-                          )}
+                          {renderFormatOptions(item)}
                         </select>
                         <ChevronDown className={`w-3.5 h-3.5 ${currentTheme.textDim} absolute right-2 top-2.5 pointer-events-none`} />
                       </div>
@@ -640,7 +772,7 @@ export default function App() {
                       {item.status === 'converting' && (
                         <div className={`flex items-center gap-1.5 px-3 py-1.5 text-xs ${currentTheme.textMuted} font-medium`}>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>{item.category === 'audio' ? `${item.progress}%` : '处理中'}</span>
+                          <span>{item.progress}%</span>
                         </div>
                       )}
 
@@ -661,7 +793,7 @@ export default function App() {
 
                       {item.status === 'success' && (
                         <div className="flex items-center gap-1.5">
-                          {item.category === 'audio' && item.resultUrl && (
+                          {(item.category === 'audio' || (item.category === 'video' && item.targetFormat !== 'gif')) && item.resultUrl && (
                             <>
                               <audio 
                                 id={`audio-player-${item.id}`} 
@@ -725,12 +857,43 @@ export default function App() {
 
       </main>
 
+      {/* QR Code Maker Modal */}
+      {qrModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`rounded-2xl border ${currentTheme.border} ${isLightTheme ? 'bg-white text-slate-900' : 'bg-[#0f141f] text-zinc-100'} max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150`}>
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <QrCode className="w-4 h-4 text-indigo-400" />
+                <span>生成高清二维码</span>
+              </div>
+              <button onClick={() => setQrModalOpen(false)} className="p-1 rounded-lg text-zinc-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold">输入网址或文本内容：</label>
+              <textarea
+                value={qrText}
+                rows={3}
+                onChange={(e) => setQrText(e.target.value)}
+                placeholder="https://..."
+                className={`w-full text-xs p-2.5 rounded-xl border ${currentTheme.border} focus:outline-none ${isLightTheme ? 'bg-slate-50 text-black' : 'bg-zinc-950 text-white'}`}
+              />
+            </div>
+            <button
+              onClick={handleCreateQRCode}
+              className={`w-full py-2.5 rounded-xl ${currentTheme.btnPrimary} font-medium text-xs transition`}
+            >
+              生成并加入任务队列
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Settings Modal Drawer */}
       {settingsOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`rounded-2xl border ${currentTheme.border} ${isLightTheme ? 'bg-white text-slate-900' : 'bg-[#0f141f] text-zinc-100'} max-w-md w-full p-6 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150`}>
-            
-            {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800/60">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4" />
@@ -744,7 +907,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* 1. Theme Selection */}
             <div className="space-y-3">
               <label className="text-xs font-medium flex items-center gap-1.5">
                 <Palette className="w-3.5 h-3.5 text-zinc-400" />
@@ -773,7 +935,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2. Image Compression Quality */}
             <div className="space-y-2 pt-2 border-t border-zinc-800/40">
               <div className="flex items-center justify-between text-xs">
                 <label className="font-medium flex items-center gap-1.5">
@@ -798,7 +959,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3. Auto Download Switch */}
             <div className="flex items-center justify-between pt-2 border-t border-zinc-800/40">
               <div>
                 <div className="text-xs font-medium flex items-center gap-1.5">
@@ -821,7 +981,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Modal Footer */}
             <div className="pt-2">
               <button
                 onClick={() => setSettingsOpen(false)}
@@ -830,7 +989,6 @@ export default function App() {
                 完成
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -839,12 +997,10 @@ export default function App() {
       {docsOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`rounded-2xl border ${currentTheme.border} ${isLightTheme ? 'bg-white text-slate-900' : 'bg-[#0f141f] text-zinc-100'} max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto`}>
-            
-            {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800/60">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-semibold text-sm">功能说明与使用指南</h3>
+                <h3 className="font-semibold text-sm">功能说明与全能支持</h3>
               </div>
               <button 
                 onClick={() => setDocsOpen(false)}
@@ -854,10 +1010,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Guide Content Sections */}
             <div className="space-y-4 text-xs leading-relaxed">
-              
-              {/* Section 1: Mobile iOS */}
               <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
                 <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
                   <Smartphone className="w-4 h-4 text-indigo-400" />
@@ -875,70 +1028,62 @@ export default function App() {
                     <span className="text-indigo-400 font-bold">•</span>
                     <div>
                       <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>导入录音机：</strong>
-                      在「语音备忘录」点录音「···」选择【存储到“文件”】，回到转换器点【录音机导入】直接选取转码。
+                      在「语音备忘录」点录音「···」选择【存储到“文件”】，回到转换器直接导入转码。
                     </div>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-indigo-400 font-bold">•</span>
                     <div>
                       <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>转发至微信/备忘录：</strong>
-                      转换完成后点击【分享】图标，直接唤起 iOS 系统分享面板。
+                      转换完成后点击【分享】图标，直接唤起 iOS 原生分享面板。
                     </div>
                   </li>
                 </ul>
               </div>
 
-              {/* Section 2: Format Matrix */}
               <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
                 <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
                   <Zap className="w-4 h-4 text-amber-400" />
-                  <span>支持转换格式</span>
+                  <span>全功能工具箱矩阵</span>
                 </div>
                 <div className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
                   <div className="flex items-start gap-2">
                     <span className="text-amber-400 font-bold">•</span>
-                    <div>
-                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>音频引擎：</strong>
-                      MP3, WAV, M4A(AAC), AAC, FLAC(无损), OGG, OPUS, WMA
-                    </div>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>视频抽音频/GIF：</strong>支持 MP4/MOV 抽取 MP3/M4A 或转微信动图表情包。</div>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-amber-400 font-bold">•</span>
-                    <div>
-                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>图像引擎：</strong>
-                      PNG, JPG/JPEG, WebP, BMP, ICO(网站图标)
-                    </div>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>多图合成 PDF：</strong>多张合同、发票照片一键排版拼入单份 A4 PDF。</div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>PDF 解析：</strong>PDF 高清页面渲染转 PNG、或提取纯文本 TXT。</div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>二维码生成：</strong>离线生成高清黑白矢量二维码图片。</div>
                   </div>
                 </div>
               </div>
 
-              {/* Section 3: Filename & Privacy */}
               <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
                 <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
                   <Shield className="w-4 h-4 text-emerald-400" />
-                  <span>私密安全与导出管理</span>
+                  <span>私密安全与无服务器</span>
                 </div>
                 <ul className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
                   <li className="flex items-start gap-2">
                     <span className="text-emerald-400 font-bold">•</span>
-                    <div>
-                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>自定义导出名：</strong>
-                      点击卡片上的文件名即可原地重命名，导出时自动以此命名。
-                    </div>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>自定义导出名：</strong>点击卡片上的文件名即可原地重命名。</div>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-emerald-400 font-bold">•</span>
-                    <div>
-                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>无服务器运算：</strong>
-                      转码全程在浏览器本地内存运行，文件永不上传任何外部服务器。
-                    </div>
+                    <div><strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>100% 浏览器内运行：</strong>所有格式转换、音视频解码均在本地内存完成，零数据泄露风险。</div>
                   </li>
                 </ul>
               </div>
-
             </div>
 
-            {/* Modal Footer */}
             <div className="pt-2">
               <button
                 onClick={() => setDocsOpen(false)}
@@ -947,7 +1092,6 @@ export default function App() {
                 我知道了
               </button>
             </div>
-
           </div>
         </div>
       )}

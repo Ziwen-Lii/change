@@ -1,31 +1,49 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { toBlobURL, fetchFile } from '@ffmpeg/util';
+import jsPDF from 'jspdf';
+import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
+import QRCode from 'qrcode';
+
+// Configure pdfjs worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 let ffmpegInstance = null;
 let loadPromise = null;
 
 export const SUPPORTED_AUDIO_FORMATS = [
-  { ext: 'mp3', label: 'MP3', mime: 'audio/mpeg' },
-  { ext: 'wav', label: 'WAV', mime: 'audio/wav' },
-  { ext: 'm4a', label: 'M4A', mime: 'audio/mp4' },
+  { ext: 'mp3', label: 'MP3 (通用)', mime: 'audio/mpeg' },
+  { ext: 'wav', label: 'WAV (无损)', mime: 'audio/wav' },
+  { ext: 'm4a', label: 'M4A (Apple AAC)', mime: 'audio/mp4' },
   { ext: 'aac', label: 'AAC', mime: 'audio/aac' },
   { ext: 'ogg', label: 'OGG', mime: 'audio/ogg' },
-  { ext: 'flac', label: 'FLAC', mime: 'audio/flac' },
+  { ext: 'flac', label: 'FLAC (高保真)', mime: 'audio/flac' },
   { ext: 'opus', label: 'OPUS', mime: 'audio/opus' },
   { ext: 'wma', label: 'WMA', mime: 'audio/x-ms-wma' },
 ];
 
 export const SUPPORTED_IMAGE_FORMATS = [
-  { ext: 'png', label: 'PNG', mime: 'image/png' },
+  { ext: 'png', label: 'PNG (透明保真)', mime: 'image/png' },
   { ext: 'jpeg', label: 'JPG / JPEG', mime: 'image/jpeg' },
-  { ext: 'webp', label: 'WebP', mime: 'image/webp' },
+  { ext: 'webp', label: 'WebP (高压缩)', mime: 'image/webp' },
   { ext: 'bmp', label: 'BMP', mime: 'image/bmp' },
-  { ext: 'ico', label: 'ICO', mime: 'image/x-icon' },
+  { ext: 'ico', label: 'ICO (图标)', mime: 'image/x-icon' },
+  { ext: 'pdf', label: 'PDF (单页文档)', mime: 'application/pdf' },
 ];
 
-/**
- * Lazily load and initialize FFmpeg WebAssembly
- */
+export const SUPPORTED_VIDEO_FORMATS = [
+  { ext: 'mp3', label: '提取纯音频 (MP3)', mime: 'audio/mpeg' },
+  { ext: 'm4a', label: '提取纯音频 (M4A)', mime: 'audio/mp4' },
+  { ext: 'wav', label: '提取纯音频 (WAV)', mime: 'audio/wav' },
+  { ext: 'gif', label: '转动图 GIF (表情包)', mime: 'image/gif' },
+];
+
+export const SUPPORTED_PDF_FORMATS = [
+  { ext: 'png', label: '逐页导出为高清 PNG', mime: 'image/png' },
+  { ext: 'jpeg', label: '逐页导出为 JPG', mime: 'image/jpeg' },
+  { ext: 'txt', label: '提取纯文本 (TXT)', mime: 'text/plain' },
+];
+
 export async function getFFmpeg(onProgress) {
   if (ffmpegInstance && ffmpegInstance.loaded) {
     return ffmpegInstance;
@@ -37,9 +55,8 @@ export async function getFFmpeg(onProgress) {
 
   loadPromise = (async () => {
     const ffmpeg = new FFmpeg();
-    
     if (onProgress) {
-      ffmpeg.on('progress', ({ progress, time }) => {
+      ffmpeg.on('progress', ({ progress }) => {
         onProgress(Math.min(Math.max(Math.round(progress * 100), 0), 100));
       });
     }
@@ -72,8 +89,16 @@ export function getFileTypeCategory(file) {
 
   const audioExts = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus', 'wma', 'aiff', 'amr'];
   const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'heic', 'heif', 'tiff'];
+  const videoExts = ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'];
+  const pdfExts = ['pdf'];
 
   const ext = name.split('.').pop();
+  if (type === 'application/pdf' || pdfExts.includes(ext)) {
+    return 'pdf';
+  }
+  if (type.startsWith('video/') || videoExts.includes(ext)) {
+    return 'video';
+  }
   if (type.startsWith('audio/') || audioExts.includes(ext)) {
     return 'audio';
   }
@@ -83,7 +108,14 @@ export function getFileTypeCategory(file) {
   return 'unknown';
 }
 
+/**
+ * Convert Image using Canvas or export single-page PDF
+ */
 export async function convertImage(file, targetFormat, options = { quality: 0.92, icoSize: 64 }) {
+  if (targetFormat === 'pdf') {
+    return convertImagesToPDF([file]);
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -137,16 +169,18 @@ export async function convertImage(file, targetFormat, options = { quality: 0.92
 
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('文件损坏或不受支持'));
+      reject(new Error('文件损坏或格式不受支持'));
     };
 
     img.src = url;
   });
 }
 
+/**
+ * Convert Audio using FFmpeg WASM
+ */
 export async function convertAudio(file, targetFormat, onProgress) {
   const ffmpeg = await getFFmpeg(onProgress);
-
   const inputExt = file.name.split('.').pop().toLowerCase() || 'm4a';
   const inputName = `input_${Date.now()}.${inputExt}`;
   const outputName = `output_${Date.now()}.${targetFormat}`;
@@ -156,7 +190,6 @@ export async function convertAudio(file, targetFormat, onProgress) {
     await ffmpeg.writeFile(inputName, fileData);
 
     const args = ['-i', inputName];
-
     if (targetFormat === 'mp3') {
       args.push('-c:a', 'libmp3lame', '-q:a', '2');
     } else if (targetFormat === 'aac' || targetFormat === 'm4a') {
@@ -168,7 +201,6 @@ export async function convertAudio(file, targetFormat, onProgress) {
     } else if (targetFormat === 'flac') {
       args.push('-c:a', 'flac');
     }
-
     args.push(outputName);
 
     await ffmpeg.exec(args);
@@ -195,4 +227,198 @@ export async function convertAudio(file, targetFormat, onProgress) {
     console.error('Audio conversion error:', err);
     throw new Error(`转换失败: ${err.message || err}`);
   }
+}
+
+/**
+ * Process Video: Extract Audio or Convert to GIF
+ */
+export async function convertVideo(file, targetFormat, onProgress) {
+  const ffmpeg = await getFFmpeg(onProgress);
+  const inputExt = file.name.split('.').pop().toLowerCase() || 'mp4';
+  const inputName = `vin_${Date.now()}.${inputExt}`;
+  const outputName = `vout_${Date.now()}.${targetFormat}`;
+
+  try {
+    const fileData = await fetchFile(file);
+    await ffmpeg.writeFile(inputName, fileData);
+
+    const args = ['-i', inputName];
+
+    if (targetFormat === 'gif') {
+      // Create high-quality compact GIF: max 15fps, width 480
+      args.push('-vf', 'fps=12,scale=480:-1:flags=lanczos', '-t', '10');
+    } else if (targetFormat === 'mp3') {
+      args.push('-vn', '-c:a', 'libmp3lame', '-q:a', '2');
+    } else if (targetFormat === 'm4a') {
+      args.push('-vn', '-c:a', 'aac', '-b:a', '192k');
+    } else if (targetFormat === 'wav') {
+      args.push('-vn', '-c:a', 'pcm_s16le');
+    }
+
+    args.push(outputName);
+    await ffmpeg.exec(args);
+
+    const data = await ffmpeg.readFile(outputName);
+    const mimeObj = SUPPORTED_VIDEO_FORMATS.find((f) => f.ext === targetFormat);
+    const mimeType = mimeObj ? mimeObj.mime : 'application/octet-stream';
+
+    const blob = new Blob([data.buffer], { type: mimeType });
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    const newFileName = `${baseName}.${targetFormat}`;
+    const convertedFile = new File([blob], newFileName, { type: mimeType });
+
+    await ffmpeg.deleteFile(inputName).catch(() => {});
+    await ffmpeg.deleteFile(outputName).catch(() => {});
+
+    return {
+      file: convertedFile,
+      blob,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+    };
+  } catch (err) {
+    console.error('Video conversion error:', err);
+    throw new Error(`视频处理失败: ${err.message || err}`);
+  }
+}
+
+/**
+ * Convert Multiple/Single Images into an A4 PDF
+ */
+export async function convertImagesToPDF(imageFiles) {
+  const pdfDoc = await PDFDocument.create();
+
+  for (const file of imageFiles) {
+    const arrayBuffer = await file.arrayBuffer();
+    let image;
+    const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
+
+    if (isPng) {
+      image = await pdfDoc.embedPng(arrayBuffer).catch(async () => {
+        // Fallback: draw through canvas as jpg
+        const bmpBlob = await convertImage(file, 'jpeg');
+        const buf = await bmpBlob.blob.arrayBuffer();
+        return await pdfDoc.embedJpg(buf);
+      });
+    } else {
+      image = await pdfDoc.embedJpg(arrayBuffer).catch(async () => {
+        const bmpBlob = await convertImage(file, 'jpeg');
+        const buf = await bmpBlob.blob.arrayBuffer();
+        return await pdfDoc.embedJpg(buf);
+      });
+    }
+
+    // A4 dimensions in points: 595.28 x 841.89
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const { width: imgW, height: imgH } = image;
+    
+    // Scale image to fit within A4 with margins (margin 20)
+    const maxWidth = 555;
+    const maxHeight = 801;
+    const scale = Math.min(maxWidth / imgW, maxHeight / imgH, 1);
+    const renderW = imgW * scale;
+    const renderH = imgH * scale;
+
+    const x = (595.28 - renderW) / 2;
+    const y = (841.89 - renderH) / 2;
+
+    page.drawImage(image, {
+      x,
+      y,
+      width: renderW,
+      height: renderH,
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const firstFileName = imageFiles[0]?.name?.replace(/\.[^/.]+$/, '') || 'document';
+  const outName = `${firstFileName}.pdf`;
+  const convertedFile = new File([blob], outName, { type: 'application/pdf' });
+
+  return {
+    file: convertedFile,
+    blob,
+    url: URL.createObjectURL(blob),
+    size: blob.size,
+  };
+}
+
+/**
+ * Process PDF: Extract text or render first/all pages to Image
+ */
+export async function convertPDF(file, targetFormat) {
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+
+  if (targetFormat === 'txt') {
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map(item => item.str).join(' ');
+      fullText += `--- 第 ${i} 页 ---\n${pageText}\n\n`;
+    }
+    const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    const convertedFile = new File([blob], `${baseName}.txt`, { type: 'text/plain' });
+    return {
+      file: convertedFile,
+      blob,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+    };
+  }
+
+  // Render Page 1 to Image (PNG / JPEG)
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2.0 }); // 2x high-res
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+
+  if (targetFormat === 'jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  return new Promise((resolve, reject) => {
+    const mimeType = targetFormat === 'jpeg' ? 'image/jpeg' : 'image/png';
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error('PDF 渲染失败'));
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
+      const newName = `${baseName}_p1.${targetFormat === 'jpeg' ? 'jpg' : 'png'}`;
+      const convertedFile = new File([blob], newName, { type: mimeType });
+      resolve({
+        file: convertedFile,
+        blob,
+        url: URL.createObjectURL(blob),
+        size: blob.size,
+      });
+    }, mimeType, 0.95);
+  });
+}
+
+/**
+ * Generate QR Code
+ */
+export async function generateQRCode(text) {
+  const dataUrl = await QRCode.toDataURL(text, {
+    width: 600,
+    margin: 2,
+    color: { dark: '#000000', light: '#ffffff' },
+  });
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const file = new File([blob], 'qrcode.png', { type: 'image/png' });
+  return {
+    file,
+    blob,
+    url: URL.createObjectURL(blob),
+    size: blob.size,
+  };
 }
