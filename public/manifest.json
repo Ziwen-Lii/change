@@ -1,0 +1,18 @@
+{
+  "name": "极速格式转换器",
+  "short_name": "格式转换",
+  "description": "纯本地离线音视频与图片格式转换工具，安全私密，不传服务器",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "pwa-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
