@@ -23,7 +23,13 @@ import {
   Sliders,
   Palette,
   HardDriveDownload,
-  Gauge
+  Gauge,
+  BookOpen,
+  HelpCircle,
+  Smartphone,
+  Shield,
+  Zap,
+  Info
 } from 'lucide-react';
 import { 
   SUPPORTED_AUDIO_FORMATS, 
@@ -99,6 +105,7 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [clipboardFeedback, setClipboardFeedback] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
 
   // Settings State with LocalStorage persistence
   const [themeId, setThemeId] = useState(() => localStorage.getItem('cs_theme') || 'dark');
@@ -342,6 +349,15 @@ export default function App() {
             </button>
           )}
 
+          {/* Docs / Guide Button */}
+          <button
+            onClick={() => setDocsOpen(true)}
+            className={`p-1.5 rounded-lg border ${currentTheme.border} ${isLightTheme ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-zinc-800 text-zinc-300'} transition active:scale-95`}
+            title="使用手册与格式支持"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+
           {/* Settings Button */}
           <button
             onClick={() => setSettingsOpen(true)}
@@ -424,7 +440,7 @@ export default function App() {
         </div>
 
         {/* Specialized Entry Hub */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           
           <button
             onClick={() => audioInputRef.current?.click()}
@@ -434,7 +450,7 @@ export default function App() {
               <Music className="w-4 h-4" />
             </div>
             <div className="font-medium text-xs">音频转换</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>MP3 / WAV / M4A / FLAC</div>
+            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>MP3 / WAV / M4A</div>
           </button>
 
           <button
@@ -445,7 +461,7 @@ export default function App() {
               <ImageIcon className="w-4 h-4" />
             </div>
             <div className="font-medium text-xs">图像转换</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>PNG / JPG / WebP / ICO</div>
+            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>PNG / JPG / WebP</div>
           </button>
 
           <button
@@ -455,8 +471,8 @@ export default function App() {
             <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
               <Mic className="w-4 h-4" />
             </div>
-            <div className="font-medium text-xs">录音机 / 备忘录</div>
-            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>手机 .m4a 导入转码</div>
+            <div className="font-medium text-xs">录音机导入</div>
+            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>手机 .m4a 转 MP3</div>
           </button>
 
           <button
@@ -468,8 +484,19 @@ export default function App() {
             </div>
             <div className="font-medium text-xs">剪贴板直读</div>
             <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>
-              {clipboardFeedback || '读取拷贝的媒体数据'}
+              {clipboardFeedback || '读取剪贴板数据'}
             </div>
+          </button>
+
+          <button
+            onClick={() => setDocsOpen(true)}
+            className={`flex flex-col items-start p-3.5 rounded-xl ${currentTheme.cardBg} ${currentTheme.cardHover} border ${currentTheme.border} transition text-left group active:scale-[0.98] shadow-sm col-span-2 sm:col-span-1`}
+          >
+            <div className={`w-8 h-8 rounded-lg border ${currentTheme.border} flex items-center justify-center mb-2.5 transition ${isLightTheme ? 'bg-slate-100 text-slate-700' : 'bg-zinc-800/80 text-zinc-300'}`}>
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div className="font-medium text-xs">使用手册</div>
+            <div className={`text-[11px] ${currentTheme.textDim} mt-0.5`}>格式支持与技巧</div>
           </button>
 
         </div>
@@ -801,6 +828,93 @@ export default function App() {
                 className={`w-full py-2 rounded-xl ${currentTheme.btnPrimary} font-medium text-xs transition shadow-sm`}
               >
                 完成
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* User Documentation / Guide Modal */}
+      {docsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`rounded-2xl border ${currentTheme.border} ${isLightTheme ? 'bg-white text-slate-900' : 'bg-[#0f141f] text-zinc-100'} max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto`}>
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800/60">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-indigo-400" />
+                <h3 className="font-semibold text-sm">功能说明与使用指南</h3>
+              </div>
+              <button 
+                onClick={() => setDocsOpen(false)}
+                className={`p-1 rounded-lg ${currentTheme.textDim} hover:${isLightTheme ? 'text-black' : 'text-white'}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Guide Content Sections */}
+            <div className="space-y-4 text-xs leading-relaxed">
+              
+              {/* Section 1: Mobile iOS */}
+              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-1.5`}>
+                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
+                  <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>iPhone / iPad 快捷技巧</span>
+                </div>
+                <ul className={`list-disc list-inside space-y-1 ${currentTheme.textMuted} pl-1`}>
+                  <li>
+                    <strong className="text-zinc-300">桌面 App 体验</strong>：在 Safari 点击底部【分享】➡️【添加到主屏幕】，即成为全屏沉浸 App。
+                  </li>
+                  <li>
+                    <strong className="text-zinc-300">导入录音机</strong>：在「语音备忘录」点录音「···」选择【存储到“文件”】，回到转换器点【录音机导入】直接选取转码。
+                  </li>
+                  <li>
+                    <strong className="text-zinc-300">转发至微信/备忘录</strong>：转换完成后点击【分享】图标，直接唤起系统分享面板。
+                  </li>
+                </ul>
+              </div>
+
+              {/* Section 2: Format Matrix */}
+              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-2`}>
+                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>支持转换格式</span>
+                </div>
+                <div className="space-y-1.5">
+                  <div>
+                    <span className="font-medium text-zinc-300">音频引擎：</span>
+                    <span className={currentTheme.textMuted}> MP3, WAV, M4A(AAC), AAC, FLAC(无损), OGG, OPUS, WMA</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-zinc-300">图像引擎：</span>
+                    <span className={currentTheme.textMuted}> PNG, JPG/JPEG, WebP, BMP, ICO(网站图标)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Filename & Privacy */}
+              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-1.5`}>
+                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
+                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>私密安全与导出管理</span>
+                </div>
+                <ul className={`list-disc list-inside space-y-1 ${currentTheme.textMuted} pl-1`}>
+                  <li><strong className="text-zinc-300">自定义导出名</strong>：点击卡片上的文件名即可原地重命名，导出时自动以此命名。</li>
+                  <li><strong className="text-zinc-300">无服务器计算</strong>：转码全程在浏览器本地内存运行，文件永不上传外部云端。</li>
+                </ul>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-2">
+              <button
+                onClick={() => setDocsOpen(false)}
+                className={`w-full py-2 rounded-xl ${currentTheme.btnPrimary} font-medium text-xs transition shadow-sm`}
+              >
+                我知道了
               </button>
             </div>
 
