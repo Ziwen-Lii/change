@@ -858,51 +858,81 @@ export default function App() {
             <div className="space-y-4 text-xs leading-relaxed">
               
               {/* Section 1: Mobile iOS */}
-              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-1.5`}>
-                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
-                  <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+              <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
+                <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
+                  <Smartphone className="w-4 h-4 text-indigo-400" />
                   <span>iPhone / iPad 快捷技巧</span>
                 </div>
-                <ul className={`list-disc list-inside space-y-1 ${currentTheme.textMuted} pl-1`}>
-                  <li>
-                    <strong className="text-zinc-300">桌面 App 体验</strong>：在 Safari 点击底部【分享】➡️【添加到主屏幕】，即成为全屏沉浸 App。
+                <ul className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>桌面 App 体验：</strong>
+                      在 Safari 点击底部【分享】➡️【添加到主屏幕】，即成为全屏沉浸独立 App。
+                    </div>
                   </li>
-                  <li>
-                    <strong className="text-zinc-300">导入录音机</strong>：在「语音备忘录」点录音「···」选择【存储到“文件”】，回到转换器点【录音机导入】直接选取转码。
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>导入录音机：</strong>
+                      在「语音备忘录」点录音「···」选择【存储到“文件”】，回到转换器点【录音机导入】直接选取转码。
+                    </div>
                   </li>
-                  <li>
-                    <strong className="text-zinc-300">转发至微信/备忘录</strong>：转换完成后点击【分享】图标，直接唤起系统分享面板。
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>转发至微信/备忘录：</strong>
+                      转换完成后点击【分享】图标，直接唤起 iOS 系统分享面板。
+                    </div>
                   </li>
                 </ul>
               </div>
 
               {/* Section 2: Format Matrix */}
-              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-2`}>
-                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
+                <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
+                  <Zap className="w-4 h-4 text-amber-400" />
                   <span>支持转换格式</span>
                 </div>
-                <div className="space-y-1.5">
-                  <div>
-                    <span className="font-medium text-zinc-300">音频引擎：</span>
-                    <span className={currentTheme.textMuted}> MP3, WAV, M4A(AAC), AAC, FLAC(无损), OGG, OPUS, WMA</span>
+                <div className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>音频引擎：</strong>
+                      MP3, WAV, M4A(AAC), AAC, FLAC(无损), OGG, OPUS, WMA
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-medium text-zinc-300">图像引擎：</span>
-                    <span className={currentTheme.textMuted}> PNG, JPG/JPEG, WebP, BMP, ICO(网站图标)</span>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>图像引擎：</strong>
+                      PNG, JPG/JPEG, WebP, BMP, ICO(网站图标)
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Section 3: Filename & Privacy */}
-              <div className={`p-3.5 rounded-xl border ${currentTheme.border} ${currentTheme.cardBg} space-y-1.5`}>
-                <div className="font-semibold flex items-center gap-1.5 text-zinc-200">
-                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
+              <div className={`p-4 rounded-xl border ${currentTheme.border} ${isLightTheme ? 'bg-slate-50' : 'bg-zinc-900/80'} space-y-2`}>
+                <div className={`font-bold flex items-center gap-1.5 text-sm ${isLightTheme ? 'text-slate-900' : 'text-white'}`}>
+                  <Shield className="w-4 h-4 text-emerald-400" />
                   <span>私密安全与导出管理</span>
                 </div>
-                <ul className={`list-disc list-inside space-y-1 ${currentTheme.textMuted} pl-1`}>
-                  <li><strong className="text-zinc-300">自定义导出名</strong>：点击卡片上的文件名即可原地重命名，导出时自动以此命名。</li>
-                  <li><strong className="text-zinc-300">无服务器计算</strong>：转码全程在浏览器本地内存运行，文件永不上传外部云端。</li>
+                <ul className={`space-y-2 ${isLightTheme ? 'text-slate-800' : 'text-zinc-200'} pl-0.5`}>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>自定义导出名：</strong>
+                      点击卡片上的文件名即可原地重命名，导出时自动以此命名。
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-400 font-bold">•</span>
+                    <div>
+                      <strong className={`font-semibold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>无服务器运算：</strong>
+                      转码全程在浏览器本地内存运行，文件永不上传任何外部服务器。
+                    </div>
+                  </li>
                 </ul>
               </div>
 
