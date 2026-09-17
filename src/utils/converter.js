@@ -1,18 +1,3 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL, fetchFile } from '@ffmpeg/util';
-import jsPDF from 'jspdf';
-import { PDFDocument } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
-import QRCode from 'qrcode';
-import jsQR from 'jsqr';
-import * as XLSX from 'xlsx';
-import mammoth from 'mammoth';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
-import JSZip from 'jszip';
-
-// Configure pdfjs worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
 let ffmpegInstance = null;
 let loadPromise = null;
 
@@ -64,7 +49,7 @@ export const SUPPORTED_TABLE_FORMATS = [
 ];
 
 /**
- * Lazily load and initialize FFmpeg WebAssembly
+ * Lazily load and initialize FFmpeg WebAssembly on-demand
  */
 export async function getFFmpeg(onProgress) {
   if (ffmpegInstance && ffmpegInstance.loaded) {
@@ -76,6 +61,9 @@ export async function getFFmpeg(onProgress) {
   }
 
   loadPromise = (async () => {
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { toBlobURL } = await import('@ffmpeg/util');
+
     const ffmpeg = new FFmpeg();
     if (onProgress) {
       ffmpeg.on('progress', ({ progress }) => {
@@ -83,11 +71,19 @@ export async function getFFmpeg(onProgress) {
       });
     }
 
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
+    const baseURL = 'https://registry.npmmirror.com/@ffmpeg/core/0.12.6/files/dist/esm';
+    try {
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+    } catch {
+      const fbURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${fbURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${fbURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+    }
 
     ffmpegInstance = ffmpeg;
     return ffmpeg;
@@ -150,12 +146,13 @@ export async function convertImage(file, targetFormat, options = {}) {
     return convertImagesToPDF([file]);
   }
 
+  // Handle Base64 output directly
   if (targetFormat === 'base64') {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const text = reader.result;
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const base64String = reader.result;
+        const blob = new Blob([base64String], { type: 'text/plain;charset=utf-8' });
         const baseName = file.name.replace(/\.[^/.]+$/, '');
         const convertedFile = new File([blob], `${baseName}_base64.txt`, { type: 'text/plain' });
         resolve({
@@ -163,9 +160,10 @@ export async function convertImage(file, targetFormat, options = {}) {
           blob,
           url: URL.createObjectURL(blob),
           size: blob.size,
+          dataUrl: base64String,
         });
       };
-      reader.onerror = reject;
+      reader.onerror = (e) => reject(e);
       reader.readAsDataURL(file);
     });
   }
@@ -177,6 +175,7 @@ export async function convertImage(file, targetFormat, options = {}) {
     img.onload = () => {
       URL.revokeObjectURL(url);
       const canvas = document.createElement('canvas');
+
       let width = img.naturalWidth || img.width;
       let height = img.naturalHeight || img.height;
 
@@ -286,6 +285,7 @@ export async function convertBase64ToImage(base64String, filename = 'recovered_i
  * Convert Audio using FFmpeg WASM with high bitrate
  */
 export async function convertAudio(file, targetFormat, onProgress) {
+  const { fetchFile } = await import('@ffmpeg/util');
   const ffmpeg = await getFFmpeg(onProgress);
   const inputExt = file.name.split('.').pop().toLowerCase() || 'm4a';
   const inputName = `input_${Date.now()}.${inputExt}`;
@@ -339,6 +339,7 @@ export async function convertAudio(file, targetFormat, onProgress) {
  * Process Video: Extract Audio or High Quality Palette-based GIF
  */
 export async function convertVideo(file, targetFormat, onProgress) {
+  const { fetchFile } = await import('@ffmpeg/util');
   const ffmpeg = await getFFmpeg(onProgress);
   const inputExt = file.name.split('.').pop().toLowerCase() || 'mp4';
   const inputName = `vin_${Date.now()}.${inputExt}`;
@@ -392,6 +393,7 @@ export async function convertVideo(file, targetFormat, onProgress) {
  * Convert Multiple Images into a Single Clean A4 PDF
  */
 export async function convertImagesToPDF(imageFiles, options = {}) {
+  const { PDFDocument } = await import('pdf-lib');
   const pdfDoc = await PDFDocument.create();
 
   for (const file of imageFiles) {
@@ -455,6 +457,9 @@ export async function convertImagesToPDF(imageFiles, options = {}) {
  * 3. Extract text to TXT
  */
 export async function convertPDF(file, targetFormat) {
+  const pdfjsLib = await import('pdfjs-dist');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://registry.npmmirror.com/pdfjs-dist/${pdfjsLib.version}/files/build/pdf.worker.min.mjs`;
+
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
@@ -482,6 +487,7 @@ export async function convertPDF(file, targetFormat) {
 
   // 2. Convert to Word (.docx)
   if (targetFormat === 'docx') {
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
     const docParagraphs = [];
     docParagraphs.push(
       new Paragraph({
@@ -566,6 +572,8 @@ export async function convertPDF(file, targetFormat) {
   }
 
   // Multi-page export with JSZip
+  const JSZipModule = await import('jszip');
+  const JSZip = JSZipModule.default || JSZipModule;
   const zip = new JSZip();
   const folder = zip.folder(`${baseName}_pages`);
 
@@ -606,6 +614,8 @@ export async function convertPDF(file, targetFormat) {
  * 3. Extract pure text (TXT)
  */
 export async function convertDocx(file, targetFormat) {
+  const mammothModule = await import('mammoth');
+  const mammoth = mammothModule.default || mammothModule;
   const arrayBuffer = await file.arrayBuffer();
   const baseName = file.name.replace(/\.[^/.]+$/, '');
 
@@ -650,6 +660,7 @@ export async function convertDocx(file, targetFormat) {
   }
 
   if (targetFormat === 'pdf') {
+    const { default: jsPDF } = await import('jspdf');
     const res = await mammoth.extractRawText({ arrayBuffer });
     const pdf = new jsPDF({
       orientation: 'portrait',
@@ -688,6 +699,7 @@ export async function convertDocx(file, targetFormat) {
  * Excel / CSV / JSON Table Data Conversion
  */
 export async function convertTable(file, targetFormat) {
+  const XLSX = await import('xlsx');
   const originalExt = file.name.split('.').pop().toLowerCase();
   const baseName = file.name.replace(/\.[^/.]+$/, '');
 
@@ -748,9 +760,36 @@ export async function convertTable(file, targetFormat) {
 }
 
 /**
+ * Preview Table Data (Sampling first 15 rows)
+ */
+export async function readTablePreview(file) {
+  const XLSX = await import('xlsx');
+  const originalExt = file.name.split('.').pop().toLowerCase();
+  let jsonData = [];
+
+  if (originalExt === 'json') {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    jsonData = Array.isArray(parsed) ? parsed : [parsed];
+  } else {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName]);
+  }
+
+  const sampleRows = jsonData.slice(0, 15);
+  const headers = sampleRows.length > 0 ? Object.keys(sampleRows[0]) : [];
+  return { title: file.name, headers, rows: sampleRows };
+}
+
+/**
  * Generate QR Code
  */
 export async function generateQRCode(text, options = {}) {
+  const QRCodeModule = await import('qrcode');
+  const QRCode = QRCodeModule.default || QRCodeModule;
+
   const dataUrl = await QRCode.toDataURL(text, {
     width: options.width || 600,
     margin: options.margin || 2,
@@ -774,6 +813,9 @@ export async function generateQRCode(text, options = {}) {
  * Decode QR Code from Image File
  */
 export async function decodeQRCode(file) {
+  const jsQRModule = await import('jsqr');
+  const jsQR = jsQRModule.default || jsQRModule;
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);

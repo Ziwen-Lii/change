@@ -61,9 +61,9 @@ import {
   convertBase64ToImage, 
   generateQRCode, 
   decodeQRCode, 
+  readTablePreview, 
   formatBytes 
 } from './utils/converter';
-import * as XLSX from 'xlsx';
 
 const THEMES = {
   dark: {
@@ -465,30 +465,12 @@ export default function App() {
   // Preview table data
   const handlePreviewTable = async (item) => {
     try {
-      let jsonData = [];
-      if (item.originalExt === 'json') {
-        const text = await item.file.text();
-        jsonData = JSON.parse(text);
-        if (!Array.isArray(jsonData)) jsonData = [jsonData];
-      } else {
-        const data = await item.file.arrayBuffer();
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-      }
-
-      if (jsonData.length === 0) {
+      const preview = await readTablePreview(item.file);
+      if (preview.rows.length === 0) {
         alert('表格数据为空');
         return;
       }
-
-      const headers = Object.keys(jsonData[0] || {});
-      const rows = jsonData.slice(0, 15); // preview top 15 rows
-      setTablePreviewData({
-        title: item.name,
-        headers,
-        rows,
-      });
+      setTablePreviewData(preview);
       setTablePreviewModalOpen(true);
     } catch (err) {
       alert('解析表格失败: ' + err.message);
