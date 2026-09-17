@@ -12,8 +12,12 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "docx": "^9.7.1",
     "jspdf": "^4.2.1",
+    "jsqr": "^1.4.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.47.0",
+    "mammoth": "^1.12.3",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.1.91",
     "qrcode": "^1.5.4",
